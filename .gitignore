@@ -422,4 +422,8 @@ MigrationBackup/
 
 # End of https://www.toptal.com/developers/gitignore/api/git,c++,cmake,visualstudio
 
+# Android
 build
+wrappers/android/realsenseid/src/standard/cpp_gen/
+wrappers/android/realsenseid/src/standard/java/com/intel/realsenseid/api/
+wrappers/android/realsenseid/src/standard/swig.i

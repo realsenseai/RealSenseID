@@ -56,6 +56,6 @@ RUN set -eux; \
     $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "cmake;3.31.6"
 
 ## HOW TO BUILD
-# docker build -t rsid-builder:latest .
+# docker build --platform=linux/amd64 -t rsid-builder:latest .
 # docker run --rm -it -v.:/rsid-builder rsid-builder bash -c "cd wrappers/android && ./gradlew clean bundleStandardReleaseAar"
-# Find your output in `wrappers/android/build/outputs/aar/`
+# Find your output in `wrappers/android/realsenseid/build/outputs/aar/`

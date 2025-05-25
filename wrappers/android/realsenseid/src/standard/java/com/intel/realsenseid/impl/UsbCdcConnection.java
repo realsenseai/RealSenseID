@@ -1,5 +1,6 @@
 package com.intel.realsenseid.impl;
 
+import static android.app.PendingIntent.FLAG_IMMUTABLE;
 import static android.hardware.usb.UsbConstants.USB_CLASS_CDC_DATA;
 import static android.hardware.usb.UsbConstants.USB_CLASS_COMM;
 import static android.hardware.usb.UsbConstants.USB_DIR_IN;
@@ -111,7 +112,7 @@ public class UsbCdcConnection {
 
     public void RequestDevicePermission(Context context, final PermissionCallback callback) {
         final var ACTION_USB_PERMISSION = "com.realsense.rsid.USB_PERMISSION";
-        var permissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_PERMISSION), 0);
+        var permissionIntent = PendingIntent.getBroadcast(context, 0, new Intent(ACTION_USB_PERMISSION), FLAG_IMMUTABLE);
         var filter = new IntentFilter(ACTION_USB_PERMISSION);
         var usbPermissionReceiver = new BroadcastReceiver() {
             @Override
