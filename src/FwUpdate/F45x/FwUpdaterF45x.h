@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -16,7 +16,7 @@ namespace FwUpdateF45x
 
 /**
  * FwUpdater class.
- * Handles firmware update operations for F46x devices.
+ * Handles firmware update operations for F50x devices.
  */
 class FwUpdaterF45x : public Impl::IFwUpdater
 {
@@ -48,7 +48,7 @@ public:
      */
     Status UpdateModules(FwUpdater::EventHandler* handler, FwUpdater::Settings settings, const char* binPath) const override;
 
-    bool IsSkuCompatible(const FwUpdater::Settings& settings, const char* binPath, int& expectedSkuVer, int& deviceSkuVer) const override;
+    bool CheckCompatibility(const FwUpdater::Settings& settings, const char* binPath, FwUpdater::FwCompatibilityInfo& info) const override;
 };
 } // namespace FwUpdateF45x
 } // namespace RealSenseID

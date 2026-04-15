@@ -1,30 +1,26 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
+using Microsoft.Win32;
 using Properties;
+using rsid;
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using System.Windows.Shapes;
-using Microsoft.Win32;
-using rsid;
-using System.Text.RegularExpressions;
+using System.Windows.Threading;
 using Path = System.IO.Path;
-using System.Runtime.CompilerServices;
-using System.Diagnostics;
-using System.Reflection;
-using System.Net.Mail;
-using System.Collections;
 
 namespace rsid_wrapper_csharp
 {
@@ -37,6 +33,18 @@ namespace rsid_wrapper_csharp
         {
             Device,
             Server
+        }
+
+        public enum OperationMode
+        {
+            All = 0,
+            FaceDetectionOnly = 1,
+            SpoofOnly = 2,
+            RecognitionOnly = 3,
+            PersonDetectionOnly = 4,
+            PoseEstimationOnly = 5,
+            BarcodeDecodingOnly = 6,
+            BodyPartDetectionOnly = 7
         }
 
         private static readonly Brush ProgressBrush = Application.Current.TryFindResource("ProgressBrush") as Brush;
@@ -55,12 +63,14 @@ namespace rsid_wrapper_csharp
         private DeviceState _deviceState;
         private Authenticator _authenticator;
         private FlowMode _flowMode;
+        private OperationMode _operationMode;
 
         private Preview _preview;
         private WriteableBitmap _previewBitmap;
         private byte[] _previewBuffer = new byte[0]; // store latest frame from the preview callback
         // tuple of (Face,IsAuthenticated,UserId) in current session
-        private List<(FaceRect, AuthStatus?, string userId)> _detectedFaces = new List<(FaceRect, AuthStatus?, string)>();
+        private List<(FaceRect, FaceLandmarks?, AuthStatus?, string userId, short score, float frameScore)> _detectedFaces = new List<(FaceRect, FaceLandmarks?, AuthStatus?, string, short, float)>();
+        private List<FaceLandmarks> _detectedLandmarks = new List<FaceLandmarks>();
         private object _previewMutex = new object();
 
         private string[] _userList = new string[0]; // latest user list that was queried from the device
@@ -69,10 +79,14 @@ namespace rsid_wrapper_csharp
         private bool _pausePreview;
         private bool _cancelWasCalled;
         private string _lastEnrolledUserId;
+        private float _lastFrameScore;
         private ArrayList _sessionHints = new ArrayList();
 
         private IntPtr _signatureHelpeHandle = IntPtr.Zero;
         private Database _db;// = new Database();
+#if RSID_ONE2ONE
+        private rsid.Faceprints _lastOne2OneEnrolledFaceprints = new rsid.Faceprints();
+#endif
 
         private string _dumpDir;
         private ProgressBarDialog _progressBar;
@@ -83,6 +97,10 @@ namespace rsid_wrapper_csharp
         private Timer _tempertatureTimer;
         private readonly System.Diagnostics.Stopwatch _fpsStopWatch = new System.Diagnostics.Stopwatch();
         private FrameDumper _frameDumper;
+        private uint _lastDumpTs = 0;
+        private Border _lastDumpBorder = null;
+        private StringBuilder _logStringBuilder = new StringBuilder();
+        private readonly Stopwatch _wkSuccessTimer = new Stopwatch();
 
         public MainWindow()
         {
@@ -103,10 +121,45 @@ namespace rsid_wrapper_csharp
             timer.Tick += Timer_Tick;
             timer.Start();
 
+            // Log timer
+            var logTimer = new DispatcherTimer();
+            logTimer.Interval = TimeSpan.FromMilliseconds(250);
+            logTimer.Tick += Log_Tick;
+            logTimer.Start();
 
             _fpsStopWatch.Start();
             if (_previewEnabled == false)
                 LabelPreview.Visibility = Visibility.Collapsed;
+        }
+
+        private void Log_Tick(object sender, EventArgs e)
+        {
+            var textToAppend = string.Empty;
+            lock (_logStringBuilder)
+            {
+                if (_logStringBuilder.Length == 0) return;
+                textToAppend = _logStringBuilder.ToString();
+                _logStringBuilder.Clear();
+            }
+            LogTextBox.AppendText(textToAppend);
+            // keep latest ~10kb only
+            const int maxLogLength = 10 * 1024;
+            const int slack = 5 * 1024;
+            if (LogTextBox.Text.Length > maxLogLength + slack)
+            {
+                Logger.Log("Trimming log..");
+                var text = LogTextBox.Text.Substring(LogTextBox.Text.Length - maxLogLength);
+                LogTextBox.Clear();
+                LogTextBox.AppendText("...\n");
+                LogTextBox.AppendText(text);
+            }
+
+            // Auto-scroll only if user hasn't scrolled up
+            var isAtBottom = LogScroll.ScrollableHeight - LogScroll.VerticalOffset <= 1.0;
+            if (isAtBottom)
+            {
+                LogScroll.ScrollToBottom();
+            }
         }
 
         private void OnUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -120,18 +173,13 @@ namespace rsid_wrapper_csharp
         {
             // load serial port and preview configuration
             LoadConfig();
-
-
-
             ThreadPool.QueueUserWorkItem(InitialSession);
         }
 
         private void MainWindow_Closing(object sender, EventArgs e)
         {
-            if (_tempertatureTimer != null)
-            {
-                _tempertatureTimer.Dispose();
-            }
+            _tempertatureTimer?.Dispose();
+            _preview?.Stop();
             if (_busy)
             {
                 try
@@ -187,10 +235,20 @@ namespace rsid_wrapper_csharp
             };
             if (FlowMode.Server == _flowMode)
             {
+#if RSID_ONE2ONE
+                if (OneToOneToggle.IsChecked.GetValueOrDefault())
+                    Task.Run(() => EnrollImageOne2OneHostJob(enrollData, false));
+                else
+#endif
                 Task.Run(() => EnrollImageHostJob(enrollData, false));
             }
             else
             {
+#if RSID_ONE2ONE
+                if (OneToOneToggle.IsChecked.GetValueOrDefault())
+                    Task.Run(() => EnrollImageOneToOneJob(enrollData, false));
+                else
+#endif
                 Task.Run(() => EnrollImageJob(enrollData, false));
             }
         }
@@ -266,7 +324,6 @@ namespace rsid_wrapper_csharp
             var mode = (PowerDialog.PowerMode)threadContext;
             if (!ConnectAuth()) return;
 
-
             try
             {
                 OnStartSession(mode.ToString(), false);
@@ -279,11 +336,20 @@ namespace rsid_wrapper_csharp
                 {
                     status = _authenticator.Hibernate();
                 }
+                else if (mode == PowerDialog.PowerMode.MountAndDump)
+                {
+                    ShowProgressTitle("Please Wait..");
+                    status = _authenticator.DumpAndMount();
+                }
                 if (status == Status.Ok)
                 {
-                    //ShowProgressTitle("In " + mode.ToString());
-                    ShowTitle($"{mode} Mode", Brushes.DarkGray);
-                    BackgroundDispatch(() =>
+                    var title = mode.ToString();
+                    if (mode == PowerDialog.PowerMode.MountAndDump)
+                    {
+                        title = "Mount Mode";
+                    }
+                    ShowTitle(title, Brushes.DarkGray);
+                    NormalDispatch(() =>
                     {
                         // Create a dark overlay over the preview
                         var darkOverlay = new System.Windows.Shapes.Rectangle
@@ -325,7 +391,7 @@ namespace rsid_wrapper_csharp
         private void AuthenticateButton_Click(object sender, RoutedEventArgs e)
         {
             AuthenticationPanel.Visibility = Visibility.Visible;
-            bool isLoop = AuthenticateLoopToggle.IsChecked.GetValueOrDefault();
+            bool isLoop = AuthenticateLoopToggle.IsChecked.GetValueOrDefault() && !OneToOneToggle.IsChecked.GetValueOrDefault();
             if (_flowMode == FlowMode.Server)
             {
                 if (isLoop)
@@ -334,6 +400,11 @@ namespace rsid_wrapper_csharp
                 }
                 else
                 {
+#if RSID_ONE2ONE
+                    if (OneToOneToggle.IsChecked.GetValueOrDefault())
+                        ThreadPool.QueueUserWorkItem(AuthenticateExtractFaceprintsOne2OneJob);
+                    else
+#endif
                     ThreadPool.QueueUserWorkItem(AuthenticateExtractFaceprintsJob);
                 }
             }
@@ -345,12 +416,15 @@ namespace rsid_wrapper_csharp
                 }
                 else
                 {
+#if RSID_ONE2ONE
+                    if (OneToOneToggle.IsChecked.GetValueOrDefault())
+                        ThreadPool.QueueUserWorkItem(AuthenticateOneToOneJob);
+                    else
+#endif //RSID_ONE2ONE
                     ThreadPool.QueueUserWorkItem(AuthenticateJob);
                 }
             }
         }
-
-
 
         private void UsersListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -438,14 +512,16 @@ namespace rsid_wrapper_csharp
                 deviceConfig,
                 _deviceState.PreviewConfig,
                 _flowMode,
+                _operationMode,
                 _previewEnabled,
-                _deviceState.SerialConfig);
+                _deviceState.SerialConfig,
+                OneToOneToggle.IsChecked.GetValueOrDefault());
 
             if (ShowWindowDialog(dialog) == true)
             {
                 if (string.IsNullOrEmpty(dialog.FirmwareFileName) == true)
                 {
-                    ThreadPool.QueueUserWorkItem(SetDeviceConfigJob, (deviceConfig, dialog.Config, _deviceState.PreviewConfig, dialog.PreviewConfig, dialog.FlowMode));
+                    ThreadPool.QueueUserWorkItem(SetDeviceConfigJob, (deviceConfig, dialog.Config, _deviceState.PreviewConfig, dialog.PreviewConfig, dialog.FlowMode, dialog.OperationMode));
                 }
                 else
                 {
@@ -648,7 +724,7 @@ namespace rsid_wrapper_csharp
 
         private void TogglePreviewOpacity(bool isActive)
         {
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 PreviewImage.Opacity = isActive ? 1.0 : 0.85;
                 LabelPreviewInfo.Opacity = isActive ? 0.66 : 0.3;
@@ -700,6 +776,7 @@ namespace rsid_wrapper_csharp
                 if (_userFeedbackTime <= 0)
                 {
                     ClearTitle();
+                    ResetOverlay();
                     PreviewCanvas.Visibility = Visibility.Hidden;
                 }
             }
@@ -710,16 +787,21 @@ namespace rsid_wrapper_csharp
             Dispatcher.BeginInvoke(action, DispatcherPriority.Background, null);
         }
 
-        // Dispatch with Render priority
-        private void RenderDispatch(Action action)
+        private void BindDispatch(Action action)
+        {
+            Dispatcher.BeginInvoke(action, DispatcherPriority.DataBind, null);
+        }
+
+        // Dispatch with Normal priority
+        private void NormalDispatch(Action action)
         {
             try
             {
-                Dispatcher.BeginInvoke(action, DispatcherPriority.Render, null);
+                Dispatcher.BeginInvoke(action, DispatcherPriority.Normal, null);
             }
             catch (Exception ex)
             {
-                Console.WriteLine("RenderDispatch: " + ex.Message);
+                Console.WriteLine("NormalDispatch: " + ex.Message);
             }
         }
 
@@ -750,19 +832,13 @@ namespace rsid_wrapper_csharp
 
         private void ClearLog()
         {
-            LogTextBox.Text = "";
-            OutputText.Text = "";
-            LogScroll.ScrollToEnd();
+            LogTextBox.Clear();
         }
 
         private void ShowLogTitle(string title)
         {
-            if (string.IsNullOrEmpty(title) == false)
-            {
-                LogTextBox.Text += $"\n{title}\n===========\n";
-                OutputText.Text = title;
-            }
-            LogScroll.ScrollToEnd();
+            var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            ShowLog($"\n[{timestamp}] {title}\n===================");
         }
 
         public Authenticator GetAuthenticator()
@@ -777,39 +853,28 @@ namespace rsid_wrapper_csharp
 
         public void ShowLog(string message)
         {
-            BackgroundDispatch(() =>
+            lock (_logStringBuilder)
             {
-                // add log line
-                LogTextBox.Text += message + "\n";
-                OutputText.Text = message;
-                // keep log size reasonable by trimming the start if needed
-                var maxLogLength = 10 * 1024;
-                if (LogTextBox.Text.Length > maxLogLength + 1024)
-                {
-                    LogTextBox.Text = "(log truncated...)\n" + LogTextBox.Text.Substring(LogTextBox.Text.Length - maxLogLength);
-                }
-            });
+                _logStringBuilder.AppendLine($"{message}");
+            }
         }
 
         private void ShowTitle(string message, Brush color, float duration = 0)
         {
-
-            BackgroundDispatch(() =>
+            NormalDispatch(() =>
             {
                 _userFeedbackTime = duration;
                 UserFeedbackText.Text = message;
                 UserFeedbackPanel.Background = color;
                 UserFeedbackContainer.Visibility = Visibility.Visible;
-                UserFeedbackContainer.Opacity = _detectedFaces.Count <= 1 ? 1.0 : 0.0f; // show title only if single face
+                UserFeedbackContainer.Opacity = (_detectedFaces.Count <= 1) ? 1.0 : 0.0f; // show title only if single face or person
+                OutputText.Text = message;
             });
         }
 
         private void ClearTitle()
         {
-            BackgroundDispatch(() =>
-            {
-                UserFeedbackContainer.Visibility = Visibility.Collapsed;
-            });
+            NormalDispatch(() => UserFeedbackContainer.Visibility = Visibility.Collapsed);
         }
 
         private void ShowSuccessTitle(string message)
@@ -833,11 +898,10 @@ namespace rsid_wrapper_csharp
                 return status.ToString();
         }
 
-        private void ShowProgressTitle(string message)
+        private void ShowProgressTitle(string message, float duration = 0)
         {
-            ShowTitle(message, ProgressBrush);
+            ShowTitle(message, ProgressBrush, duration);
         }
-
 
         private void VerifyResult(bool result, string successMessage, string failMessage, Action onSuccess = null)
         {
@@ -854,12 +918,12 @@ namespace rsid_wrapper_csharp
             }
         }
 
-        private void VerifyResultAuth(AuthStatus status, string successMessage, string failMessage, Action onSuccess = null, string userId = null)
+        private void VerifyResultAuth(AuthStatus status, string successMessage, string failMessage, Action onSuccess = null, string userId = null, short score = 0)
         {
             // provide option to unlock device if locked by too many spoof attempts
             if (status == AuthStatus.TooManySpoofs)
             {
-                BackgroundDispatch(async () =>
+                NormalDispatch(async () =>
                 {
                     await Task.Delay(750);
                     var dialog = new OKCancelDialog("Too Many Spoof Attempts!", "The device is locked due to multiple spoof attempts.\nUnlock the device?");
@@ -870,22 +934,68 @@ namespace rsid_wrapper_csharp
                     }
                 });
             }
-            VerifyResult(status == AuthStatus.Success, successMessage, failMessage, onSuccess);
-            UpdateFaceResult(status, userId);
+
+            // Walkthrough mode: show only specific statuses
+            if (IsWalkthroughMode())
+            {
+                switch (status)
+                {
+                    case AuthStatus.Success:
+                        _wkSuccessTimer.Restart();
+                        VerifyResult(true, successMessage, failMessage, onSuccess);
+                        break;
+                    case AuthStatus.Forbidden:
+                        // only show forbidden if more than 1 second passed since last success
+                        bool showForbidden = _wkSuccessTimer.IsRunning == false || _wkSuccessTimer.Elapsed.TotalSeconds >= 1;
+                        if (showForbidden)
+                        {
+                            VerifyResult(false, successMessage, failMessage, onSuccess);
+                        }
+                        else
+                        {
+                            ShowProgressTitle("Scanning..", _userFeedbackDuration);
+                        }
+                        break;
+
+                    case AuthStatus.DeviceError:
+                    case AuthStatus.Failure:
+                    case AuthStatus.TooManySpoofs:
+                    case AuthStatus.Serial_Error:
+                    case AuthStatus.Serial_SerialError:
+                    case AuthStatus.Serial_SecurityError:
+                    case AuthStatus.Serial_VersionMismatch:
+                    case AuthStatus.Serial_CrcError:
+                        VerifyResult(false, successMessage, failMessage, onSuccess);
+                        break;
+                    default:
+                        ShowProgressTitle("Scanning...", _userFeedbackDuration);
+                        break;
+                }
+            }
+            else
+            {
+                // normal mode: show all statuses
+                VerifyResult(status == AuthStatus.Success, successMessage, failMessage, onSuccess);
+            }
+            UpdateFaceResult(status, userId, score);
         }
 
-        private void UpdateFaceResult(AuthStatus status, string userId)
+        private void UpdateFaceResult(AuthStatus status, string userId, short score)
         {
             // updated the detected face success value if exists
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 //find the next face that didn't get a result yet and update it
                 for (var i = 0; i < _detectedFaces.Count; i++)
                 {
                     var face = _detectedFaces[i];
-                    if (!face.Item2.HasValue)
+
+                    if (!face.Item3.HasValue)
                     {
-                        _detectedFaces[i] = (face.Item1, status, userId);
+                        if (_detectedLandmarks.Count > i)
+                            _detectedFaces[i] = (face.Item1, _detectedLandmarks[i], status, userId, score, _lastFrameScore);
+                        else
+                            _detectedFaces[i] = (face.Item1, null, status, userId, score, _lastFrameScore);
                         break;
                     }
                 }
@@ -896,7 +1006,7 @@ namespace rsid_wrapper_csharp
 
         private void UpdateProgressBar(float progress)
         {
-            BackgroundDispatch(() =>
+            NormalDispatch(() =>
             {
                 _progressBar.Update(progress);
             });
@@ -904,7 +1014,7 @@ namespace rsid_wrapper_csharp
 
         private void CloseProgressBar()
         {
-            BackgroundDispatch(() =>
+            NormalDispatch(() =>
             {
                 _progressBar?.Close();
                 _progressBar = null;
@@ -914,19 +1024,31 @@ namespace rsid_wrapper_csharp
         private void UpdateAuthButtonText()
         {
             string text;
-            switch (_deviceState.DeviceConfig.algoFlow)
+            switch (_operationMode)
             {
-                case DeviceConfig.AlgoFlow.All:
+                case OperationMode.All:
                     text = "AUTHENTICATE";
                     break;
-                case DeviceConfig.AlgoFlow.SpoofOnly:
+                case OperationMode.SpoofOnly:
                     text = "DETECT SPOOF";
                     break;
-                case DeviceConfig.AlgoFlow.FaceDetectionOnly:
+                case OperationMode.FaceDetectionOnly:
                     text = "DETECT FACE";
                     break;
-                case DeviceConfig.AlgoFlow.RecognitionOnly:
+                case OperationMode.RecognitionOnly:
                     text = "RECOGNIZE FACE";
+                    break;
+                case OperationMode.PersonDetectionOnly:
+                    text = "DETECT PERSON";
+                    break;
+                case OperationMode.PoseEstimationOnly:
+                    text = "DETECT POSE";
+                    break;
+                case OperationMode.BarcodeDecodingOnly:
+                    text = "DECODE BARCODE";
+                    break;
+                case OperationMode.BodyPartDetectionOnly:
+                    text = "DETECT TAILGATE";
                     break;
                 default:
                     text = "AUTHENTICATE";
@@ -936,8 +1058,7 @@ namespace rsid_wrapper_csharp
         }
         private void SetUiEnabled(bool isEnabled)
         {
-            var isRecogEnabled = _deviceState.DeviceConfig.algoFlow == DeviceConfig.AlgoFlow.All ||
-                _deviceState.DeviceConfig.algoFlow == DeviceConfig.AlgoFlow.RecognitionOnly;
+            bool isRecogEnabled = IsRecogEnabled();
 
             SettingsButton.IsEnabled = isEnabled;
             // Prevent any other operatation if device is not compatible
@@ -955,10 +1076,29 @@ namespace rsid_wrapper_csharp
             FetchDeviceLogButton.IsEnabled = isEnabled;
             AuthenticateButton.IsEnabled = isEnabled;
             AuthenticateLoopToggle.IsEnabled = isEnabled;
+
+#if RSID_ONE2ONE
+            OneToOneToggle.Visibility = Visibility.Visible;
+            if (_operationMode == OperationMode.FaceDetectionOnly || _operationMode == OperationMode.SpoofOnly)
+            {
+                OneToOneToggle.IsEnabled = false;
+            }
+            else
+            {
+                OneToOneToggle.IsEnabled = isEnabled;
+            }
+            ToggleOneToOne(isEnabled);
+#endif
             UsersListView.IsEnabled = isEnabled && isRecogEnabled;
             SelectAllUsersCheckBox.IsEnabled = isEnabled && isRecogEnabled && _userList?.Length > 0;
 
             UpdateAuthButtonText();
+        }
+
+        private bool IsRecogEnabled()
+        {
+            return _operationMode == OperationMode.All ||
+                            _operationMode == OperationMode.RecognitionOnly;
         }
 
         private FlowMode StringToFlowMode(string flowModeString)
@@ -1002,7 +1142,7 @@ namespace rsid_wrapper_csharp
             }
         }
 
-        // Create authenticator        
+        // Create authenticator
         private Authenticator CreateAuthenticator()
         {
             if (_deviceState.deviceType == DeviceType.Unknown)
@@ -1052,21 +1192,35 @@ namespace rsid_wrapper_csharp
             ShowLog(" * Camera Rotation: " + deviceConfig.cameraRotation.ToString());
             ShowLog(" * AntiSpoof Level: " + deviceConfig.securityLevel.ToString());
             ShowLog(" * Algo Flow: " + deviceConfig.algoFlow);
+            ShowLog(" * Face Selection: " + deviceConfig.faceSelectionPolicy);
             ShowLog(" * Dump Mode: " + deviceConfig.dumpMode.ToString());
             ShowLog(" * Host Mode: " + _flowMode);
             ShowLog(" * Camera Index: " + _deviceState.PreviewConfig.cameraNumber);
             ShowLog(" * Preview Mode: " + _deviceState.PreviewConfig.previewMode);
+            ShowLog(" * Person Motion Mode: " + deviceConfig.personMotionMode.ToString());
             ShowLog(" * Matcher Confidence Level: " + deviceConfig.matcherConfidenceLevel.ToString());
             ShowLog(" * Max Spoofs: " + deviceConfig.maxSpoofs.ToString());
-            ShowLog(" * Gpio Auth-Toggling: " + deviceConfig.GpioAuthToggling.ToString());
+            ShowLog(" * Matching Threshold: " + deviceConfig.matchThresh.ToString());
+            ShowLog(" * Sensor Exposure Time: " + deviceConfig.sensorExpTime.ToString());
+            ShowLog(" * Sensor Gain: " + deviceConfig.sensorGain.ToString());
+            ShowLog(" * GPIO Auth-Toggling: " + deviceConfig.GpioAuthToggling.ToString());
+            ShowLog(" * Rectangle enabled: " + deviceConfig.rectEnable.ToString());
+            ShowLog(" * Landmarks enabled: " + deviceConfig.landmarksEnable.ToString());
+            int numRoisLog = Math.Max(1, Math.Min(5, (int)deviceConfig.num_rois));
+            ShowLog(" * Num ROIs: " + numRoisLog);
+            for (int i = 0; i < numRoisLog; i++)
+            {
+                ShowLog($" * ROI[{i}] X: {deviceConfig.detection_rois[i].x}  Y: {deviceConfig.detection_rois[i].y}  Width: {deviceConfig.detection_rois[i].width}  Height: {deviceConfig.detection_rois[i].height}");
+            }
+            ShowLog(" * Distance Limit: " + deviceConfig.distanceLimit.ToString());
+            ShowLog(" * Distance Calculation Enable: " + deviceConfig.distanceEnabled.ToString());
             ShowLog("");
         }
 
         private DeviceConfig? QueryDeviceConfig()
         {
 
-            ShowLog("");
-            ShowLog("Query device config..");
+            ShowLogTitle("Device Config");
             DeviceConfig deviceConfig;
             var rv = _authenticator.QueryDeviceConfig(out deviceConfig);
             if (rv != Status.Ok)
@@ -1090,6 +1244,7 @@ namespace rsid_wrapper_csharp
                 throw new Exception("QueryDeviceConfig Error");
             }
             _deviceState.DeviceConfig = deviceConfig.Value;
+            _operationMode = (OperationMode)(int)deviceConfig.Value.algoFlow;
         }
 
         private bool UpdateUser(int userIndex, string userId, ref Faceprints updatedFaceprints)
@@ -1113,12 +1268,12 @@ namespace rsid_wrapper_csharp
             // (1) if Faceprints (FP) version changed, e.g. the FP on the db and the current FP changed version (and possibly their internal structure).
             // (2) if db Load() fails on some exception - this may be due to version mismatch (FP structure changed) or other error.
             //
-            // in both cases we want to : 
+            // in both cases we want to :
             //
             // (a) backup the old db to a separated file.
             // (b) clear the db and start a new db from scratch.
             // (c) refresh the users list on the gui.
-            //           
+            //
 
             if (_flowMode == FlowMode.Server)
             {
@@ -1207,7 +1362,7 @@ namespace rsid_wrapper_csharp
                     if (winningMatchResult.shouldUpdate > 0)
                     {
                         // apply adaptive update
-                        // take the updated vector from the matchArgs that were sent by reference and updated 
+                        // take the updated vector from the matchArgs that were sent by reference and updated
                         // during call to MatchFaceprintsToFaceprints() .
 
                         bool updateSuccess = UpdateUser(winningIndex, winningIdStr, ref winningUpdatedFaceprints);
@@ -1231,13 +1386,89 @@ namespace rsid_wrapper_csharp
             }
         }
 
+        private static readonly Brush[] _roiColors = { Brushes.Orange, Brushes.Yellow, Brushes.Cyan, Brushes.LimeGreen, Brushes.Magenta };
+
+        private void RenderROI()
+        {
+            // Don't draw on empty image
+            if (PreviewImage.Visibility != Visibility.Visible || _previewBitmap == null)
+                return;
+
+            // Convert ROI coords FHD=>VGA if needed
+            double scaleX, scaleY;
+            const double RawLongDim = 1920.0, RawShortDim = 1080.0;
+            if (_previewBitmap.Width > _previewBitmap.Height)
+            {
+                scaleX = _previewBitmap.Width / RawLongDim;
+                scaleY = _previewBitmap.Height / RawShortDim;
+            }
+            else
+            {
+                scaleX = _previewBitmap.Width / RawShortDim;
+                scaleY = _previewBitmap.Height / RawLongDim;
+            }
+
+            int numRois = Math.Max(1, Math.Min(5, (int)_deviceState.DeviceConfig.num_rois));
+            for (int i = 0; i < numRois; i++)
+            {
+                int roiX = _deviceState.DeviceConfig.detection_rois[i].x;
+                int roiY = _deviceState.DeviceConfig.detection_rois[i].y;
+                int roiWidth = _deviceState.DeviceConfig.detection_rois[i].width;
+                int roiHeight = _deviceState.DeviceConfig.detection_rois[i].height;
+
+                // Don't draw if ROI is full frame
+                if (roiX == 0 && roiY == 0)
+                {
+                    if (_previewBitmap.Width > _previewBitmap.Height)
+                    {
+                        if (roiWidth == 1920 && roiHeight == 1080) continue;
+                    }
+                    else
+                    {
+                        if (roiWidth == 1080 && roiHeight == 1920) continue;
+                    }
+                }
+
+                var x = roiX * scaleX;
+                var y = roiY * scaleY;
+                var w = roiWidth * scaleX;
+                var h = roiHeight * scaleY;
+
+                string tag = "ROI_" + i;
+                Rectangle roiRect = PreviewCanvas.Children
+                    .OfType<Rectangle>()
+                    .FirstOrDefault(r => (string)r.Tag == tag);
+
+                if (roiRect != null)
+                {
+                    roiRect.Width = w;
+                    roiRect.Height = h;
+                }
+                else
+                {
+                    roiRect = new Rectangle
+                    {
+                        Width = w,
+                        Height = h,
+                        Stroke = _roiColors[i % _roiColors.Length],
+                        StrokeThickness = 5,
+                        Tag = tag
+                    };
+                    PreviewCanvas.Children.Add(roiRect);
+                }
+
+                Canvas.SetLeft(roiRect, x);
+                Canvas.SetTop(roiRect, y);
+            }
+        }
+
         private void RenderDetectedFaces()
         {
             // don't draw on empty image
             if (PreviewImage.Visibility != Visibility.Visible || _previewBitmap == null)
                 return;
-            // show detected faces                        
-            foreach (var (face, status, userId) in _detectedFaces)
+            // show detected faces
+            foreach (var (face, landmarks, status, userId, score, frameScore) in _detectedFaces)
             {
                 // convert face rect coords FHD=>VGA
                 double scaleX, scaleY;
@@ -1279,12 +1510,53 @@ namespace rsid_wrapper_csharp
                 Canvas.SetLeft(rect, x);
                 Canvas.SetTop(rect, y);
 
-                Console.WriteLine($"userid {userId}");
+                if (landmarks.HasValue)
+                {
+                    // Render landmarks if available as keypoints
+                    if (landmarks.Value.landmarksY != null && landmarks.Value.landmarksY != null && landmarks.Value.landmarksX.Length > 0 && landmarks.Value.landmarksY.Length > 0)
+                    {
+                        // Flag to indicate if at least one landmark point is valid
+                        bool hasValidLandmark = false;
+                        for (int i = 0; i < landmarks.Value.landmarksX.Length; i++)
+                        {
+                            if (landmarks.Value.landmarksX[i] != 0 || landmarks.Value.landmarksY[i] != 0)
+                            {
+                                hasValidLandmark = true;
+                                break;
+                            }
+                        }
+
+                        if (hasValidLandmark)
+                        {
+                            // Draw keypoints
+                            for (int i = 0; i < landmarks.Value.landmarksX.Length; i++)
+                            {
+                                var lx = landmarks.Value.landmarksX[i] * scaleX;
+                                var ly = landmarks.Value.landmarksY[i] * scaleY;
+                                var ellipse = new Ellipse
+                                {
+                                    Width = 12,
+                                    Height = 12,
+                                    Fill = status.Value == AuthStatus.Success ? SuccessBrush : FailBrush,
+                                };
+                                PreviewCanvas.Children.Add(ellipse);
+                                Canvas.SetLeft(ellipse, lx - 6);
+                                Canvas.SetTop(ellipse, ly - 6);
+                            }
+                        }
+                    }
+                }
 
                 string rectString = userId != null ? userId : string.Empty;
                 var showStatus = status.HasValue && (status.Value != AuthStatus.Success || string.IsNullOrEmpty(userId));
                 string statusString = showStatus ? Enum.GetName(typeof(AuthStatus), status) : string.Empty;
                 rectString = rectString + " " + statusString;
+                // if in walkthrough mode, don't show scores
+                if (_deviceState.DeviceConfig.personMotionMode != DeviceConfig.PersonMotionMode.Walkthrough)
+                {
+                    rectString = score > 0 ? rectString + " (" + score + ")" : rectString;
+                    rectString = frameScore > 0 ? rectString + " [" + frameScore.ToString("n4") + "]" : rectString;
+                }
 
                 // print username near the rect if available
                 if (!string.IsNullOrEmpty(rectString))
@@ -1292,17 +1564,199 @@ namespace rsid_wrapper_csharp
                     var userTextBlock = new TextBlock
                     {
                         FontSize = 38,
-                        // flip the back the text because the canvas horizontally flips the preview                   
+                        // flip the back the text because the canvas horizontally flips the preview
                         RenderTransformOrigin = new Point(0, 0.5),
                         RenderTransform = new ScaleTransform { ScaleX = -1, ScaleY = 1 },
-                        //FontFamily = new FontFamily("Arial"),                    
+                        //FontFamily = new FontFamily("Arial"),
                         Text = rectString,
                         Foreground = Brushes.White
                     };
-                    // display the text on bottom left 
+                    // display the text on bottom left
                     PreviewCanvas.Children.Add(userTextBlock);
                     Canvas.SetLeft(userTextBlock, x + w - 4);
                     Canvas.SetTop(userTextBlock, y + h);
+                }
+            }
+        }
+
+        private void RenderDetectedPersons(PersonRect[] persons)
+        {
+            // don't draw on empty image
+            if (PreviewImage.Visibility != Visibility.Visible || _previewBitmap == null)
+                return;
+
+            // Render detected persons
+            PreviewCanvas.Children.Clear();
+            foreach (var person in persons)
+            {
+                // Convert person rect coords FHD=>VGA
+                double scaleX, scaleY;
+                const double RawLongDim = 1920.0, RawShortDim = 1080.0;
+                if (_previewBitmap.Width > _previewBitmap.Height)
+                {
+                    scaleX = _previewBitmap.Width / RawLongDim;
+                    scaleY = _previewBitmap.Height / RawShortDim;
+                }
+                else
+                {
+                    scaleX = _previewBitmap.Width / RawShortDim;
+                    scaleY = _previewBitmap.Height / RawLongDim;
+                }
+
+                var x = person.x * scaleX;
+                var y = person.y * scaleY;
+                var w = scaleX * person.width;
+                var h = scaleY * person.height;
+
+                // Draw rectangle around person
+                // select color
+                Brush stroke;
+                switch (person.bodyPart)
+                {
+                    case BodyPart.Person:
+                        stroke = SuccessBrush;
+                        break;
+                    case BodyPart.Foot:
+                        stroke = Brushes.Red;
+                        break;
+                    case BodyPart.Arm:
+                        stroke = Brushes.Blue;
+                        break;
+                    case BodyPart.Leg:
+                        stroke = Brushes.Yellow;
+                        break;
+                    case BodyPart.Hand:
+                        stroke = Brushes.Magenta;
+                        break;
+                    default:
+                        stroke = SuccessBrush;
+                        break;
+
+                }
+                var rect = new Rectangle
+                {
+                    Width = w,
+                    Height = h,
+                    Stroke = stroke,
+                    StrokeThickness = 3,
+                };
+
+                PreviewCanvas.Children.Add(rect);
+                Canvas.SetLeft(rect, x);
+                Canvas.SetTop(rect, y);
+            }
+        }
+
+        // 0: Nose, 1: LeftEye, 2: RightEye, 3: LeftEar, 4: RightEar, 5: LeftShoulder, 6: RightShoulder, 7: LeftElbow, 8: RightElbow,
+        // 9: LeftWrist, 10: RightWrist, 11: LeftHip, 12: RightHip, 13: LeftKnee, 14: RightKnee, 15: LeftAnkle, 16: RightAnkle
+        private static readonly List<(int, int)> _poseConnections = new List<(int, int)> {
+            (15, 13), (13, 11), (16, 14), (14, 12), (11, 12), (5, 11), (6, 12),
+            (5, 6), (5, 7), (7, 9), (6, 8), (8, 10), (0, 1), (0, 2), (1, 3), (2, 4)
+        };
+        private void RenderDetectedPoses(PersonPose[] poses)
+        {
+            // don't draw on empty image
+            if (PreviewImage.Visibility != Visibility.Visible || _previewBitmap == null)
+                return;
+
+            // Render detected persons
+            PreviewCanvas.Children.Clear();
+            foreach (var pose in poses)
+            {
+                // Convert pose rect coords FHD=>VGA
+                double scaleX, scaleY;
+                const double RawLongDim = 1920.0, RawShortDim = 1080.0;
+                if (_previewBitmap.Width > _previewBitmap.Height)
+                {
+                    scaleX = _previewBitmap.Width / RawLongDim;
+                    scaleY = _previewBitmap.Height / RawShortDim;
+                }
+                else
+                {
+                    scaleX = _previewBitmap.Width / RawShortDim;
+                    scaleY = _previewBitmap.Height / RawLongDim;
+                }
+
+                // Draw rectangle around person
+                var x = pose.x * scaleX;
+                var y = pose.y * scaleY;
+                var w = scaleX * pose.width;
+                var h = scaleY * pose.height;
+
+                var rect = new Rectangle
+                {
+                    Width = w,
+                    Height = h,
+                    Stroke = SuccessBrush,
+                    StrokeThickness = 3,
+                };
+
+                PreviewCanvas.Children.Add(rect);
+                Canvas.SetLeft(rect, x);
+                Canvas.SetTop(rect, y);
+
+                // Render landmarks if available as skeleton of keypoints and connections
+                if (pose.landmarksX != null && pose.landmarksY != null && pose.landmarksX.Length > 0 && pose.landmarksY.Length > 0)
+                {
+                    int n = Math.Min(pose.landmarksX.Length, pose.landmarksY.Length);
+                    double MinLandmarkScore = Settings.Default.ScoreThreshold;
+
+                    bool ShouldRenderLandmark(int index)
+                    {
+                        if (index < 0 || index >= n)
+                            return false;
+                        if (pose.landmarksScore == null || pose.landmarksScore.Length <= index)
+                            return true;
+
+                        var normalizedScore = pose.landmarksScore[index];
+                        return normalizedScore >= MinLandmarkScore;
+                    }
+
+                    // Draw keypoints
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (!ShouldRenderLandmark(i))
+                            continue;
+
+                        var lx = pose.landmarksX[i] * scaleX;
+                        var ly = pose.landmarksY[i] * scaleY;
+                        var ellipse = new Ellipse
+                        {
+                            Width = 20,
+                            Height = 20,
+                            Fill = Brushes.Yellow,
+                            Stroke = Brushes.Black,
+                            StrokeThickness = 2
+                        };
+                        PreviewCanvas.Children.Add(ellipse);
+                        Canvas.SetLeft(ellipse, lx - 10);
+                        Canvas.SetTop(ellipse, ly - 10);
+                    }
+
+                    foreach (var conn in _poseConnections)
+                    {
+                        if (conn.Item1 < n && conn.Item2 < n)
+                        {
+                            if (!ShouldRenderLandmark(conn.Item1) || !ShouldRenderLandmark(conn.Item2))
+                                continue;
+
+                            var x0 = pose.landmarksX[conn.Item1] * scaleX;
+                            var y0 = pose.landmarksY[conn.Item1] * scaleY;
+                            var x1 = pose.landmarksX[conn.Item2] * scaleX;
+                            var y1 = pose.landmarksY[conn.Item2] * scaleY;
+
+                            var line = new Line
+                            {
+                                X1 = x0,
+                                Y1 = y0,
+                                X2 = x1,
+                                Y2 = y1,
+                                Stroke = Brushes.LimeGreen,
+                                StrokeThickness = 3
+                            };
+                            PreviewCanvas.Children.Add(line);
+                        }
+                    }
                 }
             }
         }
@@ -1334,11 +1788,13 @@ namespace rsid_wrapper_csharp
 
             if (_deviceState.PreviewConfig.previewMode == PreviewMode.RAW10_1080P)
             {
-                // RAW preview for 180 and 270 degrees needs to be flipped
+                // in f500 flip for all rotations
+                if (_deviceState.IsF500)
+                    bitmap.RotateFlip(System.Drawing.RotateFlipType.RotateNoneFlipXY);
+                //RAW preview for 180 and 270 degrees needs to be flipped
                 if (_deviceState.DeviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg ||
                     _deviceState.DeviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_270_Deg)
                     bitmap.RotateFlip(System.Drawing.RotateFlipType.Rotate180FlipNone);
-
             }
 
             previewImage.width = bitmap.Width;
@@ -1352,7 +1808,7 @@ namespace rsid_wrapper_csharp
             return true;
         }
 
-        // Handle preview callback.         
+        // Handle preview callback.
         private void OnPreview(PreviewImage image, IntPtr ctx)
         {
             if (_pausePreview)
@@ -1394,18 +1850,19 @@ namespace rsid_wrapper_csharp
                 // handle preview with optional rotation
                 PreviewHandler(ref image);
             }
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 if (previewLabel != null)
                     LabelPreviewInfo.Content = previewLabel;
                 UiHandlePreview(image);
+                RenderROI();
             });
         }
 
         private void HandleDumpException(Exception ex)
         {
             _frameDumper = null;
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 ShowErrorMessage("Dump failed", ex.Message + "\nDump stopped..");
             });
@@ -1437,8 +1894,8 @@ namespace rsid_wrapper_csharp
                     else
                     {
                         var filename = _frameDumper.DumpPreviewImage(image, accessories);
-                        ShowDumpFile(filename);
-
+                        if (filename != null)
+                            ShowDumpFile(filename, image.metadata.timestamp);
                     }
                 }
                 catch (Exception ex)
@@ -1449,23 +1906,71 @@ namespace rsid_wrapper_csharp
         }
 
         // Display dump file at the top right corner
-        private void ShowDumpFile(string filename)
+        private void ShowDumpFile(string filename, uint ts)
         {
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 try
                 {
-                    var image = ImageHelper.CreateImageControl(filename);
-                    var border = new Border
+                    if (ts != _lastDumpTs) // New frame
                     {
-                        BorderThickness = new Thickness(3),
-                        BorderBrush = Brushes.White,
-                        Child = image
-                    };
 
-                    Canvas.SetLeft(border, 25);
-                    Canvas.SetTop(border, 190);
-                    PreviewCanvas.Children.Add(border);
+                        _lastDumpTs = ts;
+                        _lastDumpBorder = null;
+
+                        var image = ImageHelper.CreateImageControl(filename);
+
+                        // Create a grid to hold the image and potential overlay
+                        var grid = new Grid();
+                        grid.Children.Add(image);
+
+                        var border = new Border
+                        {
+                            BorderThickness = new Thickness(3),
+                            BorderBrush = Brushes.White,
+                            Child = grid
+                        };
+
+                        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+                        panel.Children.Add(border);
+
+                        Canvas.SetLeft(panel, 25);
+                        Canvas.SetTop(panel, 190);
+                        PreviewCanvas.Children.Clear();
+                        PreviewCanvas.Children.Add(panel);
+
+                        _lastDumpBorder = border;
+                    }
+                    else // Same frame, additional face
+                    {
+                        if (_lastDumpBorder != null && _lastDumpBorder.Parent is StackPanel panel)
+                        {
+                            var image = ImageHelper.CreateImageControl(filename);
+                            // Show small image (half size) next to the main one
+                            if (_lastDumpBorder.Child is Grid mainGrid &&
+                                mainGrid.Children.Count > 0 &&
+                                mainGrid.Children[0] is System.Windows.Controls.Image mainImage)
+                            {
+                                image.Width = mainImage.Width * 0.5;
+                                image.Height = mainImage.Height * 0.5;
+                                image.Stretch = Stretch.Uniform;
+                            }
+                            else
+                            {
+                                image.LayoutTransform = new ScaleTransform(0.5, 0.5);
+                            }
+
+                            var border = new Border
+                            {
+                                BorderThickness = new Thickness(1),
+                                BorderBrush = Brushes.White,
+                                Child = image,
+                                Margin = new Thickness(5, 0, 0, 0),
+                                VerticalAlignment = VerticalAlignment.Top
+                            };
+                            panel.Children.Add(border);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1474,11 +1979,12 @@ namespace rsid_wrapper_csharp
             });
         }
 
-        private void ResetDetectedFaces()
+        private void ResetOverlay()
         {
-            RenderDispatch(() =>
+            NormalDispatch(() =>
             {
                 _detectedFaces.Clear();
+                _detectedLandmarks.Clear();
                 PreviewCanvas.Children.Clear();
                 PreviewCanvas.Visibility = Visibility.Visible;
                 PreviewCanvas.Opacity = 1.0;
@@ -1487,7 +1993,7 @@ namespace rsid_wrapper_csharp
 
         private void OnStartSession(string title, bool activateDumps)
         {
-            //activate full preview dumps only if device's DumpMode is enabled 
+            //activate full preview dumps only if device's DumpMode is enabled
             activateDumps = activateDumps && _deviceState.DeviceConfig.dumpMode != DeviceConfig.DumpMode.None;
             Dispatcher.Invoke(() =>
             {
@@ -1496,10 +2002,11 @@ namespace rsid_wrapper_csharp
                 RedDot.Visibility = Visibility.Visible;
                 _cancelWasCalled = false;
                 _sessionHints.Clear();
-                AuthenticatingTextBlock.Text = "Authenticating...";
+                AuthenticatingTextBlock.Text = IsWalkthroughMode() ? "Scanning..." : "Authenticating...";
                 EnrollingTextBlock.Text = "Enrolling user...";
                 CancelAuthenticationButton.IsEnabled = true;
-                ResetDetectedFaces();
+                ResetOverlay();
+                _wkSuccessTimer.Reset();
                 try
                 {
                     _frameDumper = activateDumps ? new FrameDumper(_dumpDir, title, _deviceState) : null;
@@ -1523,12 +2030,19 @@ namespace rsid_wrapper_csharp
         }
 
         // Enroll callbacks
-        private void OnEnrollHint(EnrollStatus hint, IntPtr ctx)
+        private void OnEnrollHint(EnrollStatus hint, float frameScore, IntPtr ctx)
         {
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+                return;
+            }
             _sessionHints.Add(hint);
             ShowLog("Hint: " + hint.ToString());
             if (hint != EnrollStatus.Success)
-                ShowProgressTitle(FriendlyString(hint));
+                ShowProgressTitle(hint.ToString());
+            if (hint != EnrollStatus.CameraStarted && hint != EnrollStatus.CameraStopped)
+                ShowLog("frame score: " + frameScore.ToString("n4"));
         }
 
         private void OnEnrollProgress(FacePose pose, IntPtr ctx)
@@ -1551,10 +2065,11 @@ namespace rsid_wrapper_csharp
                 {
                     _lastEnrolledUserId = null;
                 }
-                var guimsg = FriendlyString(status) + AcessoriesString(_sessionHints);
+                var guimsg = status.ToString() + AcessoriesString(_sessionHints);
                 ShowLog(guimsg);
                 VerifyResult(status == EnrollStatus.Success, guimsg, guimsg);
             }
+            ResetOverlay();
         }
 
         private void OnEnrollExtractionResult(EnrollStatus status, IntPtr faceprintsHandle, IntPtr ctx)
@@ -1570,14 +2085,7 @@ namespace rsid_wrapper_csharp
                 string logmsg;
                 if (status != EnrollStatus.Success)
                 {
-                    if (status == EnrollStatus.EnrollWithMaskIsForbidden)
-                    {
-                        logmsg = "Enroll with mask is forbidden.";
-                    }
-                    else
-                    {
-                        logmsg = FriendlyString(status);
-                    }
+                    logmsg = status.ToString();
 
                     ShowFailedTitle(logmsg);
                     ShowLog(logmsg);
@@ -1599,7 +2107,7 @@ namespace rsid_wrapper_csharp
                 guimsg += AcessoriesString(_sessionHints);
                 ShowLog(logmsg);
 
-                // handle enroll 
+                // handle enroll
                 VerifyResult(true, guimsg, guimsg, () =>
                 {
                     if (_db.Push(faceprints, _lastEnrolledUserId))
@@ -1611,18 +2119,7 @@ namespace rsid_wrapper_csharp
             }
         }
 
-        // Return friendly string from authenticate or enroll status
-        private static string FriendlyString<T>(T status) where T : Enum
-        {
-            if (Enum.GetName(typeof(T), status) == "NoFaceDetected")
-                return "No valid face detected";
-            else if (Enum.GetName(typeof(T), status) == "InvalidFeatures")
-                return "Image blurred";
-            else
-                return status.ToString();
-        }
-
-        // return /hints are in the range of 50-60   
+        // return /hints are in the range of 50-60
         private static ArrayList FilterAccesories(ArrayList hints)
         {
             var rv = new ArrayList();
@@ -1636,7 +2133,7 @@ namespace rsid_wrapper_csharp
             return rv;
         }
         // Return friendly string for found accessories in hints
-        // Example: "(sunglasses, covidmask)
+        // Example: "(sunglasses, medicalmask)
         private static string AcessoriesString(ArrayList hints)
         {
             var accesories = FilterAccesories(hints);
@@ -1646,46 +2143,338 @@ namespace rsid_wrapper_csharp
             return $" ({joined})".ToLower();
         }
 
-
-        // Authentication callbacks
-        private void OnAuthHint(AuthStatus hint, IntPtr ctx)
+        private bool IsWalkthroughMode()
         {
-            _sessionHints.Add(hint);
-            ShowLog(hint.ToString());
-            ShowProgressTitle(hint.ToString());
-
-            if (hint == AuthStatus.NoFaceDetected)
-            {
-                ShowFailedTitle("No face detected");
-            }
+            return _deviceState.DeviceConfig.personMotionMode == DeviceConfig.PersonMotionMode.Walkthrough;
         }
 
-
-        private void OnAuthResult(AuthStatus status, string userId, IntPtr ctx)
+        // Authentication callbacks
+        private void OnAuthHint(AuthStatus hint, float frameScore, IntPtr ctx)
         {
-            ShowLog($"OnAuthResult status: {status} \"{userId}\"");
             if (_cancelWasCalled)
             {
                 ShowSuccessTitle("Canceled");
+                return;
+            }
+            _sessionHints.Add(hint);
+            ShowLog(hint.ToString());
+
+            if (!IsWalkthroughMode())
+            {
+                ShowProgressTitle(hint.ToString()); // don't show hints in walkthrough mode
+            }
+
+            if (hint != AuthStatus.CameraStarted && hint != AuthStatus.CameraStopped)
+            {
+                ShowLog("frame score: " + frameScore.ToString("n4"));
+                _lastFrameScore = frameScore;
+            }
+            if (hint == AuthStatus.NoFaceDetected || hint == AuthStatus.PersonNotFound)
+            {
+                ResetOverlay();
+            }
+        }
+
+        private void OnAuthResult(AuthStatus status, string userId, short score, IntPtr ctx)
+        {
+            ShowLog($"OnAuthResult status: {status} \"{userId}\" {score}");
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+                ResetOverlay();
+            }
+            // Hide rectangles for invalid features, only show message.
+            else if (status == AuthStatus.InvalidFeatures)
+            {
+                UpdateFaceResult(status, null, 0);
+                return;
+            }
+            // walkthrough - don't show score or accessories
+            if (IsWalkthroughMode())
+            {
+                var sucessMsg = userId.Length > 0 ? userId : status.ToString();
+                var failMsg = status.ToString();
+                VerifyResultAuth(status, sucessMsg, failMsg, null, userId, score);
             }
             else
             {
                 var accesories = AcessoriesString(_sessionHints);
-                VerifyResultAuth(status, $"{userId}{accesories}", FriendlyString(status), null, userId);
+                if (userId.Length > 0)
+                    VerifyResultAuth(status, $"{userId}({score}){accesories}", $"{status}({score})", null, userId, score);
+                else
+                    VerifyResultAuth(status, $"{status}", $"{status}", null, userId, score);
             }
             _sessionHints.Clear();
         }
 
-        private void OnFaceDeteced(IntPtr facesArr, int faceCount, uint ts, IntPtr ctx)
+        private void OnFaceDetected(IntPtr facesArr, int faceCount, uint ts, IntPtr ctx)
         {
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+                return;
+            }
             //convert to face rects
-            ResetDetectedFaces();
+            ResetOverlay();
             var faces = Authenticator.MarshalFaces(facesArr, faceCount);
+
             foreach (var face in faces)
             {
-                ShowLog($"OnFaceDeteced [{face.x},{face.y} {face.width}x{face.height}]");
-                RenderDispatch(() => _detectedFaces.Add((face, null, null)));
+                ShowLog($"OnFaceDetected [{face.x},{face.y} {face.width}x{face.height}]");
+                NormalDispatch(() => _detectedFaces.Add((face, null, null, null, 0, 0)));
             }
+        }
+
+        private void OnLandmarksDetected(IntPtr landmarksArr, int faceCount, uint ts, IntPtr ctx)
+        {
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+                return;
+            }
+            //convert to face landmarks
+            var landmarks = Authenticator.MarshalLandamrks(landmarksArr, faceCount);
+            foreach (var lms in landmarks)
+            {
+                ShowLog($"OnLandmarksDetected [x0={lms.landmarksX[0]},y0={lms.landmarksY[0]}]");
+                NormalDispatch(() => _detectedLandmarks.Add(lms));
+            }
+        }
+
+        private void OnFaceDistances(IntPtr distancesPtr, int count, uint ts, IntPtr ctx)
+        {
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+                return;
+            }
+            // Marshal distance values (doubles)
+            double[] distances = new double[count];
+            Marshal.Copy(distancesPtr, distances, 0, count);
+
+            for (int i = 0; i < distances.Length; i++)
+            {
+                ShowLog($"Face[{i}] distance: {distances[i]:F1} cm");
+            }
+        }
+
+        // Create and return a person detection callback with status handling
+        // In loop mode, show searching continuously
+        // In single shot mode, show failure
+        private PersonDetectionCallback CreatePersonDetectionCallback(bool isLoopMode)
+        {
+            return (persons, count, ts, authStatus, ctx) =>
+            {
+                if (_cancelWasCalled)
+                {
+                    ShowSuccessTitle("Canceled");
+                    return false;
+                }
+
+                if (authStatus != AuthStatus.PersonFound)
+                {
+                    ShowLog($"{authStatus}");
+                    ResetOverlay();
+                    if (isLoopMode)
+                        ShowProgressTitle("Scanning..");
+                    else
+                        ShowFailedTitle(authStatus.ToString());
+                }
+                else
+                {
+                    ShowSuccessTitle("Person Detected");
+                    ShowLog($"Detected {count} person(s)");
+                    OnPersonDetected(persons, count);
+                }
+                return true; // Continue detection
+            };
+        }
+
+        private PoseDetectionCallback CreatePoseDetectionCallback(bool isLoopMode)
+        {
+            return (poses, count, ts, authStatus, ctx) =>
+            {
+                if (_cancelWasCalled)
+                {
+                    ShowSuccessTitle("Canceled");
+                    return false;
+                }
+                if (authStatus != AuthStatus.PersonFound)
+                {
+                    ShowLog($"{authStatus}");
+                    ResetOverlay();
+                    if (isLoopMode)
+                        ShowProgressTitle("Scanning..");
+                    else
+                        ShowFailedTitle(authStatus.ToString());
+                }
+                else
+                {
+                    ShowSuccessTitle("Pose Detected");
+                    OnPoseDetected(poses, count, ts, ctx);
+                }
+                return true; // Continue detection
+            };
+        }
+
+        private BodyPartDetectionCallback CreateBodyPartDetectionCallback(bool isLoopMode)
+        {
+            return (bodyParts, count, ts, authStatus, ctx) =>
+            {
+                if (_cancelWasCalled)
+                {
+                    ShowSuccessTitle("Canceled");
+                    return false;
+                }
+                if (authStatus != AuthStatus.PersonFound)
+                {
+                    ShowLog($"{authStatus}");
+                    ResetOverlay();
+                    if (isLoopMode)
+                        ShowProgressTitle("Scanning..");
+                    else
+                        ShowFailedTitle(authStatus.ToString());
+                }
+                else
+                {
+                    ShowSuccessTitle("Person Detected");
+                    ShowLog($"Detected {count} body part(s)");
+                    OnPersonDetected(bodyParts, count);
+                }
+                return true; // Continue detection
+            };
+        }
+
+        private BarcodeDetectionCallback CreateBarcodeDetectionCallback(bool isLoopMode)
+        {
+            return (barcodes, count, ts, authStatus, ctx) =>
+            {
+                if (_cancelWasCalled)
+                {
+                    ShowSuccessTitle("Canceled");
+                    return false;
+                }
+                if (authStatus != AuthStatus.BarcodeFound)
+                {
+                    ShowLog($"{authStatus}");
+                    ResetOverlay();
+                    if (isLoopMode)
+                        ShowProgressTitle("Scanning..");
+                    else
+                        ShowFailedTitle(authStatus.ToString());
+                }
+                else
+                {
+                    ShowSuccessTitle($"Detected {count} Barcode(s)");
+                    OnBarcodeDecoded(barcodes, count, ts, ctx);
+                }
+                return true; // Continue detection
+            };
+        }
+
+        private void ExecuteAlgoFlow(OperationMode algoFlow, AuthArgs authArgs, bool isLoopMode)
+        {
+            switch (algoFlow)
+            {
+                case OperationMode.PersonDetectionOnly:
+                    ShowProgressTitle("Scanning..");
+                    _authenticator.DetectPersons(CreatePersonDetectionCallback(isLoopMode), isLoopMode);
+                    break;
+
+                case OperationMode.PoseEstimationOnly:
+                    ShowProgressTitle("Scanning..");
+                    _authenticator.DetectPoses(CreatePoseDetectionCallback(isLoopMode), isLoopMode);
+                    break;
+
+                case OperationMode.BodyPartDetectionOnly:
+                    ShowProgressTitle("Scanning..");
+                    _authenticator.DetectBodyParts(CreateBodyPartDetectionCallback(isLoopMode), isLoopMode);
+                    break;
+                case OperationMode.BarcodeDecodingOnly:
+                    ShowProgressTitle("Scanning..");
+                    _authenticator.DecodeBarcodes(CreateBarcodeDetectionCallback(isLoopMode), isLoopMode);
+                    break;
+
+
+                case OperationMode.FaceDetectionOnly:
+                case OperationMode.SpoofOnly:
+                case OperationMode.RecognitionOnly:
+                case OperationMode.All:
+                    if (algoFlow == OperationMode.All)
+                        ShowProgressTitle("Authenticating...");
+                    else
+                        ShowProgressTitle("Scanning...");
+
+                    if (isLoopMode)
+                        _authenticator.AuthenticateLoop(authArgs);
+                    else
+                        _authenticator.Authenticate(authArgs);
+                    break;
+                default:
+                    throw new ArgumentException($"Unsupported algorithm flow: {_operationMode}");
+            }
+        }
+
+        private void OnPersonDetected(IntPtr personsArr, int personCount)
+        {
+            var persons = Authenticator.MarshalPersons(personsArr, personCount);
+            foreach (var person in persons)
+            {
+                var distanceInfo = person.distance != 0 ? $" {person.distance} cm" : string.Empty;
+                ShowLog($" * [{person.bodyPart}] [{person.x},{person.y} {person.width}x{person.height}]{distanceInfo}");
+            }
+
+            NormalDispatch(() =>
+            {
+                RenderDetectedPersons(persons);
+            });
+        }
+
+        private void OnPoseDetected(IntPtr poseArr, int poseCount, uint ts, IntPtr ctx)
+        {
+            ShowLog($"OnPoseDetected: {poseCount} poses(s)");
+            //convert to person rects            
+            var poses = Authenticator.MarshalPoses(poseArr, poseCount);
+            foreach (var pose in poses)
+            {
+                ShowLog($" * [{pose.x},{pose.y} {pose.width}x{pose.height}]");
+            }
+            NormalDispatch(() =>
+            {
+                RenderDetectedPoses(poses);
+            });
+        }
+
+        private void OnBarcodeDecoded(IntPtr barcodesArr, int barcodeCount, uint ts, IntPtr ctx)
+        {
+            ShowLog($"OnBarcodeDecoded: {barcodeCount} barcode(s)");
+            //convert to barcode strings
+            var barcodes = Authenticator.MarshalBarcodes(barcodesArr, barcodeCount);
+            foreach (var barcode in barcodes)
+            {
+                ShowLog($"OnBarcodeDecoded: {barcode} (ts {ts})");
+            }
+        }
+
+        private void OnFaceCroppedImage(IntPtr buf, int w, int h, uint ts, IntPtr ctx)
+        {
+            ShowLog($"OnFaceCroppedImage [{w}x{h},ts={ts}]");
+            var accessories = FilterAccesories(_sessionHints);
+            int channels = 3; //rgb
+            var image = new PreviewImage
+            {
+                buffer = buf,
+                width = w,
+                height = h,
+                stride = w * channels,
+                metadata = new PreviewImageMetadata
+                {
+                    timestamp = ts,
+                },
+            };
+            var filename = _frameDumper.DumpPreviewImage(image, accessories);
+            if (filename != null)
+                ShowDumpFile(filename, ts);
         }
 
         public void OnAuthLoopExtractionResult(AuthStatus status, IntPtr faceprintsHandle, IntPtr ctx)
@@ -1703,7 +2492,7 @@ namespace rsid_wrapper_csharp
             }
             else
             {
-                VerifyResultAuth(status, string.Empty, FriendlyString(status));
+                VerifyResultAuth(status, string.Empty, status.ToString());
             }
             _sessionHints.Clear();
         }
@@ -1724,7 +2513,7 @@ namespace rsid_wrapper_csharp
             }
             else
             {
-                VerifyResultAuth(status, string.Empty, FriendlyString(status));
+                VerifyResultAuth(status, string.Empty, status.ToString());
             }
             _sessionHints.Clear();
         }
@@ -1767,14 +2556,14 @@ namespace rsid_wrapper_csharp
             var usersExist = usersCount > 0;
             InstructionsEnrollUsers.Visibility = usersExist ? Visibility.Collapsed : Visibility.Visible;
             SelectAllUsersCheckBox.IsEnabled = usersExist &&
-                _deviceState.DeviceConfig.algoFlow == DeviceConfig.AlgoFlow.All || _deviceState.DeviceConfig.algoFlow == DeviceConfig.AlgoFlow.RecognitionOnly;
+                _operationMode == OperationMode.All || _operationMode == OperationMode.RecognitionOnly;
             UpdateAuthButtonText();
         }
 
         // query user list from the device and update the display
         private void RefreshUserList()
         {
-            // Query users and update the user list display            
+            // Query users and update the user list display
             ShowLog("Fetching users..");
             ShowProgressTitle("Fetching users..");
             SetInstructionsToRefreshUsers(true);
@@ -1790,7 +2579,7 @@ namespace rsid_wrapper_csharp
 
             // update the gui and save the list into _userList
             SetInstructionsToRefreshUsers(false);
-            BackgroundDispatch(() =>
+            NormalDispatch(() =>
             {
                 UpdateUsersUiList(users);
             });
@@ -1799,7 +2588,7 @@ namespace rsid_wrapper_csharp
 
         private void RefreshUserListServer()
         {
-            // Query users and update the user list display            
+            // Query users and update the user list display
             ShowLog("Query users..");
             SetInstructionsToRefreshUsers(true);
             string[] users;
@@ -1808,7 +2597,7 @@ namespace rsid_wrapper_csharp
 
             // update the gui and save the list into _userList
             SetInstructionsToRefreshUsers(false);
-            BackgroundDispatch(() =>
+            NormalDispatch(() =>
             {
                 UpdateUsersUiList(users);
             });
@@ -1832,7 +2621,7 @@ namespace rsid_wrapper_csharp
                 }
                 ShowLog("Success\n");
 
-                // print FW modules 
+                // print FW modules
                 var fwVersion = controller.QueryFirmwareVersion();
                 ShowLog($"Device: {device.deviceType}");
                 ShowLog("Firmware:");
@@ -1851,11 +2640,16 @@ namespace rsid_wrapper_csharp
                 }
                 ShowLog("");
 
+                // Detect if it is F500 device
+                var bspver = controller.QueryBspVer();
+                device.IsF500 = bspver.Contains("RealSense F500");
+                ShowLog($"IsF500: {(device.IsF500 ? "Yes" : "No")}\n");
+
                 // print serial number
                 var sn = controller.QuerySerialNumber();
                 device.SerialNumber = sn;
                 ShowLog($"S/N: {device.SerialNumber}\n");
-                BackgroundDispatch(() =>
+                NormalDispatch(() =>
                 {
                     // add device info to the title (replace if already exists)
                     if (!string.IsNullOrEmpty(device.FirmwareVersion))
@@ -1865,7 +2659,15 @@ namespace rsid_wrapper_csharp
                         {
                             Title = Title.Substring(0, idx);
                         }
-                        Title += $" ({device.deviceType} ver {device.FirmwareVersion})";
+                        if (device.IsF500)
+                        {
+                            Title += $" (F500 ver {device.FirmwareVersion})";
+                        }
+                        else
+                        {
+                            var deviceName = device.deviceType == DeviceType.F50x ? "F46x" : device.deviceType.ToString();
+                            Title += $" ({deviceName} ver {device.FirmwareVersion})";
+                        }
                     }
                     SNText.Text = $"S/N: {device.SerialNumber}";
                 });
@@ -1880,7 +2682,6 @@ namespace rsid_wrapper_csharp
                     // Not critical error. just log it and continue
                     ShowLog("Error writing to sn.txt:\n" + ex.Message);
                 }
-
                 ShowLog("Pinging device...");
 
                 status = controller.Ping();
@@ -1907,6 +2708,7 @@ namespace rsid_wrapper_csharp
                 if (deviceConfig.HasValue)
                 {
                     device.DeviceConfig = deviceConfig.Value;
+                    _operationMode = (OperationMode)(int)deviceConfig.Value.algoFlow;
                     _deviceState.PreviewConfig.portraitMode =
                         device.DeviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_0_Deg ||
                         device.DeviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg;
@@ -1981,6 +2783,7 @@ namespace rsid_wrapper_csharp
             public SerialConfig SerialConfig;
             public PreviewConfig PreviewConfig;
             public DeviceConfig DeviceConfig;
+            public bool IsF500;
 
             public SerializableDeviceState ToSerialized()
             {
@@ -1993,6 +2796,7 @@ namespace rsid_wrapper_csharp
                     IsOperational = IsOperational,
                     IsCompatible = IsCompatible,
                     SerialConfig = SerialConfig,
+                    IsF500 = IsF500,
                     PreviewConfig = PreviewConfig.ToSerialized(),
                     DeviceConfig = DeviceConfig.ToSerialized()
                 };
@@ -2011,6 +2815,7 @@ namespace rsid_wrapper_csharp
             public string SerialNumber;
             public bool IsOperational;
             public bool IsCompatible;
+            public bool IsF500;
             public SerialConfig SerialConfig; // SerialConfig contains no enums - reused directly
 
             // Must be serialized to string-based version
@@ -2020,12 +2825,24 @@ namespace rsid_wrapper_csharp
 
         private DeviceState DetectDevice()
         {
-            DeviceInfo deviceInfo;
-
-            // acquire communication settings
-            if (Settings.Default.AutoDetect)
+            DeviceInfo deviceInfo = new DeviceInfo();
+            // if command line contains com port use it instead of auto detecting
+            string[] args = Environment.GetCommandLineArgs();
+            if (args.Length > 1)
             {
+                deviceInfo.SerialPort = args[1];
+                deviceInfo.DeviceType = rsid.Discover.DiscoverDeviceType(deviceInfo.SerialPort);
+            }
+
+            // auto detect com port
+            else if (Settings.Default.AutoDetect)
+            {
+                ShowLog("Detecting Devices..");
                 var devices = rsid.Discover.DiscoverDevices();
+                foreach (var d in devices)
+                {
+                    ShowLog($"{d.SerialPort}, {d.DeviceType}, \"{d.SerialNumber}\"");
+                }
 
                 if (devices.Length == 0)
                 {
@@ -2097,11 +2914,11 @@ namespace rsid_wrapper_csharp
                 OnStopSession();
 
                 var compatibleF450 = Authenticator.CompatibleFirmwareVersion(DeviceType.F45x);
-                var compatibleF460 = Authenticator.CompatibleFirmwareVersion(DeviceType.F46x);
+                var compatibleF500 = Authenticator.CompatibleFirmwareVersion(DeviceType.F50x);
 
                 ShowFailedTitle("Device Error");
                 var msg = $"Device failed to respond. Please reconnect the device and try again." +
-                    $"\nIf the the issue persists, flash firmware version f45x v{compatibleF450} or F46x v{compatibleF460}.\n";
+                    $"\nIf the the issue persists, flash firmware version f45x v{compatibleF450} or F50x v{compatibleF500}.\n";
                 ShowLog(msg);
                 ShowErrorMessage("Device Error", msg);
 
@@ -2161,8 +2978,8 @@ namespace rsid_wrapper_csharp
                 else
                     RefreshUserList();
 
-                // if f460 start device temperature poller                
-                if (_deviceState.deviceType == DeviceType.F46x)
+                // if f500 start device temperature poller
+                if (_deviceState.deviceType == DeviceType.F50x)
                 {
                     _tempertatureTimer = new Timer(TemperaturePoller, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(30));
                 }
@@ -2179,7 +2996,7 @@ namespace rsid_wrapper_csharp
                 OnStopSession();
                 if (_authenticator != null)
                     _authenticator.Disconnect();
-                RenderDispatch(() => UpdatePairingButtons(true));
+                NormalDispatch(() => UpdatePairingButtons(true));
             }
         }
 
@@ -2221,7 +3038,9 @@ namespace rsid_wrapper_csharp
                     hintClbk = OnEnrollHint,
                     resultClbk = OnEnrollResult,
                     progressClbk = OnEnrollProgress,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                     ctx = userIdCtx
                 };
                 var status = _authenticator.Enroll(enrollArgs);
@@ -2252,76 +3071,6 @@ namespace rsid_wrapper_csharp
             }
         }
 
-        // Enroll Job
-        private void EnrollImageJob(Object threadContext)
-        {
-            const int maxImageSize = 900 * 1024;
-            if (!ConnectAuth()) return;
-
-            var args = (Tuple<string, string>)threadContext;
-            var (userId, imageFilename) = args;
-
-            var (buffer, w, h, bitmap) = ImageHelper.ToBgr(imageFilename, maxImageSize);
-
-            OnStartSession($"Enroll {userId}", true);
-            var userIdCtx = Marshal.StringToHGlobalUni(userId);
-            try
-            {
-                // validate file not bigger than max allowed
-                if (buffer.Length > maxImageSize)
-                    throw new Exception("File too big");
-
-                // show uploaded image on preview panel
-                RenderDispatch(() =>
-                {
-                    var bi = ImageHelper.BitmapToImageSource(bitmap);
-                    // flip back horizontally since the preview canvas is flipped
-                    var transform = new ScaleTransform { ScaleX = -1 };
-                    var image = new Image
-                    {
-                        Source = bi,
-                        RenderTransformOrigin = new Point(0.5, 0.5),
-                        RenderTransform = transform,
-                        Height = 250,
-                    };
-                    var border = new Border
-                    {
-                        BorderThickness = new Thickness(2),
-                        BorderBrush = Brushes.White,
-                        Child = image
-                    };
-
-                    PreviewCanvas.Children.Add(border);
-                    Canvas.SetRight(border, 16);
-                    Canvas.SetTop(border, 205);
-                });
-
-                ShowProgressTitle("Uploading To Device..");
-                _busy = true;
-
-                var status = _authenticator.EnrollImage(userId, buffer, w, h);
-                if (status == EnrollStatus.Success)
-                {
-                    RefreshUserList();
-                }
-
-                var logMsg = status == EnrollStatus.Success ? "Enroll success" : FriendlyString(status);
-                ShowLog(logMsg);
-                VerifyResult(status == EnrollStatus.Success, logMsg, logMsg);
-            }
-            catch (Exception ex)
-            {
-                ShowFailedTitle(ex.Message);
-            }
-            finally
-            {
-                OnStopSession();
-                HideEnrollingLabelPanel();
-                _busy = false;
-                _authenticator.Disconnect();
-                Marshal.FreeHGlobal(userIdCtx);
-            }
-        }
 
         // Enroll Job
         private bool EnrollImageJob(EnrollImageRecord enrollRecord, bool isBatch)
@@ -2329,22 +3078,22 @@ namespace rsid_wrapper_csharp
 
             var success = false;
             IntPtr userIdCtx = IntPtr.Zero;
-            const int maxImageSize = 900 * 1024;
+            const int maxImageSize = 10 * 1024 * 1024;
             if (!ConnectAuth()) return false;
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, maxImageSize);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, true);
 
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
 
                 // validate file not bigger than max allowed
-                if (buffer.Length > maxImageSize)
+                if (buffer.Length > maxImageSize * 3)
                     throw new Exception("File too big");
 
                 // show uploaded image on preview panel
-                RenderDispatch(() =>
+                NormalDispatch(() =>
                 {
                     var bi = ImageHelper.BitmapToImageSource(bitmap);
                     // flip back horizontally since the preview canvas is flipped
@@ -2377,7 +3126,7 @@ namespace rsid_wrapper_csharp
                     RefreshUserList();
                 }
 
-                var logMsg = status == EnrollStatus.Success ? "Enroll success" : FriendlyString(status);
+                var logMsg = status == EnrollStatus.Success ? "Enroll success" : status.ToString();
                 VerifyResult(status == EnrollStatus.Success, logMsg, logMsg);
                 success = status == EnrollStatus.Success;
             }
@@ -2403,22 +3152,22 @@ namespace rsid_wrapper_csharp
 
             var success = false;
             IntPtr userIdCtx = IntPtr.Zero;
-            const int maxImageSize = 900 * 1024;
+            const int maxImageSize = 10 * 1024 * 1024;
             if (!ConnectAuth()) return false;
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, maxImageSize);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, true);
 
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
 
                 // validate file not bigger than max allowed
-                if (buffer.Length > maxImageSize)
+                if (buffer.Length > maxImageSize * 3)
                     throw new Exception("File too big");
 
                 // show uploaded image on preview panel
-                RenderDispatch(() =>
+                NormalDispatch(() =>
                 {
                     var bi = ImageHelper.BitmapToImageSource(bitmap);
                     // flip back horizontally since the preview canvas is flipped
@@ -2454,7 +3203,7 @@ namespace rsid_wrapper_csharp
                     RefreshUserListServer();
                 }
 
-                var logMsg = status == EnrollStatus.Success ? "Enroll success" : FriendlyString(status);
+                var logMsg = status == EnrollStatus.Success ? "Enroll success" : status.ToString();
                 VerifyResult(status == EnrollStatus.Success, logMsg, logMsg);
                 success = status == EnrollStatus.Success;
             }
@@ -2490,7 +3239,9 @@ namespace rsid_wrapper_csharp
                     hintClbk = OnEnrollHint,
                     resultClbk = OnEnrollExtractionResult,
                     progressClbk = OnEnrollProgress,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                 };
                 Status status = _authenticator.EnrollExtractFaceprints(enrollExtArgs);
                 if (status != Status.Ok)
@@ -2647,20 +3398,18 @@ namespace rsid_wrapper_csharp
                 {
                     hintClbk = OnAuthHint,
                     resultClbk = OnAuthResult,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                     ctx = IntPtr.Zero
                 };
 
-                ShowProgressTitle("Authenticating..");
                 _busy = true;
-                // don't show refresh preview while authenticating                 
                 PausePreview();
                 var sw = Stopwatch.StartNew();
-                Status status = _authenticator.Authenticate(authArgs);
+                ExecuteAlgoFlow(_operationMode, authArgs, false);
                 ShowLog($"{sw.ElapsedMilliseconds} milliseconds");
-                if (status != Status.Ok)
-                    ShowFailedTitle(status.ToString());
-
             }
             catch (Exception ex)
             {
@@ -2676,6 +3425,393 @@ namespace rsid_wrapper_csharp
             }
         }
 
+#if RSID_ONE2ONE
+        private void ToggleOneToOne(bool isEnabled)
+        {
+            if (OneToOneToggle.IsChecked.GetValueOrDefault())
+            {
+                EnrollButton.IsEnabled = false;
+                BatchEnrollButton.IsEnabled = false;
+                EnrollImgButton.IsEnabled = isEnabled;
+                AuthenticateImgButton.Visibility = Visibility.Visible;
+                AuthenticateImgButton.IsEnabled = isEnabled && _flowMode == FlowMode.Device;
+                AuthenticateLoopToggle.Visibility = Visibility.Collapsed;
+                AuthenticateLoopToggle.IsEnabled = false;
+
+            }
+            else
+            {
+                bool isEnrollEnabled = isEnabled && IsRecogEnabled();
+                EnrollButton.IsEnabled = isEnrollEnabled;
+                BatchEnrollButton.IsEnabled = isEnrollEnabled;
+                EnrollImgButton.IsEnabled = isEnrollEnabled;
+                AuthenticateImgButton.Visibility = Visibility.Collapsed;
+                AuthenticateImgButton.IsEnabled = false;
+                AuthenticateLoopToggle.Visibility = Visibility.Visible;
+                AuthenticateLoopToggle.IsEnabled = isEnabled;
+            }
+        }
+#endif
+
+        private void OneToOneCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+#if RSID_ONE2ONE
+            ToggleOneToOne(true);
+#endif
+        }
+
+        private void OneToOneCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+#if RSID_ONE2ONE
+            ToggleOneToOne(true);
+#endif
+        }
+
+        private void AuthenticateImgButton_Click(object sender, RoutedEventArgs e)
+        {
+#if RSID_ONE2ONE
+            var openFileDialog = new OpenFileDialog
+            {
+                CheckFileExists = true,
+                Multiselect = false,
+                Title = "Select Image to Authenticate",
+                Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;",
+                FilterIndex = 1
+            };
+            if (openFileDialog.ShowDialog() == false)
+                return;
+            Task.Run(() => AuthenticateImageOne2OneJob(openFileDialog.FileName));
+#endif
+        }
+
+#if RSID_ONE2ONE
+        // Enroll Job
+        private bool EnrollImageOneToOneJob(EnrollImageRecord enrollRecord, bool isBatch)
+        {
+            var success = false;
+            IntPtr userIdCtx = IntPtr.Zero;
+            if (!ConnectAuth()) return false;
+
+            try
+            {
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, false);
+
+                OnStartSession($"Enroll {enrollRecord.UserId}", true);
+                userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
+
+                // show uploaded image on preview panel
+                NormalDispatch(() =>
+                {
+                    var bi = ImageHelper.BitmapToImageSource(bitmap);
+                    // flip back horizontally since the preview canvas is flipped
+                    var transform = new ScaleTransform { ScaleX = -1 };
+                    var image = new Image
+                    {
+                        Source = bi,
+                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransform = transform,
+                        Height = 250,
+                    };
+                    var border = new Border
+                    {
+                        BorderThickness = new Thickness(2),
+                        BorderBrush = Brushes.White,
+                        Child = image
+                    };
+
+                    PreviewCanvas.Children.Add(border);
+                    Canvas.SetRight(border, 16);
+                    Canvas.SetTop(border, 205);
+                });
+
+                ShowProgressTitle("Uploading To Device..");
+                _busy = true;
+
+                var status = _authenticator.EnrollImageOneToOne(enrollRecord.UserId, buffer, w, h);
+
+                var logMsg = status == EnrollStatus.Success ? "Enroll success" : status.ToString();
+                VerifyResult(status == EnrollStatus.Success, logMsg, logMsg);
+                success = status == EnrollStatus.Success;
+            }
+            catch (Exception ex)
+            {
+                ShowFailedTitle(ex.Message);
+                OnStopSession();
+            }
+            finally
+            {
+                if (!isBatch) OnStopSession();
+                HideEnrollingLabelPanel();
+                _busy = false;
+                _authenticator.Disconnect();
+                if (userIdCtx != IntPtr.Zero)
+                    Marshal.FreeHGlobal(userIdCtx);
+            }
+            return success;
+        }
+
+        // Authenticate Job
+        private bool AuthenticateImageOne2OneJob(string filename)
+        {
+            var success = false;
+            const int maxImageSize = 10 * 1024 * 1024;
+            if (!ConnectAuth()) return false;
+
+            try
+            {
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(filename, false);
+
+                // validate file not bigger than max allowed
+                if (buffer.Length > maxImageSize * 3)
+                    throw new Exception("File too big");
+
+                // show uploaded image on preview panel
+                NormalDispatch(() =>
+                {
+                    var bi = ImageHelper.BitmapToImageSource(bitmap);
+                    // flip back horizontally since the preview canvas is flipped
+                    var transform = new ScaleTransform { ScaleX = -1 };
+                    var image = new Image
+                    {
+                        Source = bi,
+                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransform = transform,
+                        Height = 250,
+                    };
+                    var border = new Border
+                    {
+                        BorderThickness = new Thickness(2),
+                        BorderBrush = Brushes.White,
+                        Child = image
+                    };
+
+                    PreviewCanvas.Children.Add(border);
+                    Canvas.SetRight(border, 16);
+                    Canvas.SetTop(border, 205);
+                });
+
+                ShowProgressTitle("Uploading To Device..");
+                _busy = true;
+                string userId = "";
+                short score = 0;
+                var status = _authenticator.AuthenticateImageOneToOne(buffer, w, h, ref userId, ref score);
+                if (status != AuthStatus.Success)
+                {
+                    if (score > 0)
+                        ShowFailedTitle(status.ToString() + "(" + score + ")");
+                    else
+                        ShowFailedTitle(status.ToString());
+                }
+                else
+                    ShowSuccessTitle(userId + "(" + score + ")");
+            }
+            catch (Exception ex)
+            {
+                ShowFailedTitle(ex.Message);
+            }
+            finally
+            {
+                OnStopSession();
+                HideAuthenticatingLabelPanel();
+                _busy = false;
+                _authenticator.Disconnect();
+            }
+            return success;
+        }
+
+        // Authenticate job
+        private void AuthenticateOneToOneJob(Object threadContext)
+        {
+            if (!ConnectAuth()) return;
+            OnStartSession("Authenticate", true);
+            try
+            {
+                var authArgs = new AuthArgs
+                {
+                    hintClbk = OnAuthHint,
+                    resultClbk = OnAuthResult,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
+                    ctx = IntPtr.Zero
+                };
+
+                ShowProgressTitle("Authenticating..");
+                _busy = true;
+                // don't show refresh preview while authenticating
+                PausePreview();
+                var sw = Stopwatch.StartNew();
+                Status status = _authenticator.AuthenticateOneToOne(authArgs);
+                ShowLog($"{sw.ElapsedMilliseconds} milliseconds");
+                if (status != Status.Ok)
+                    ShowFailedTitle(status.ToString());
+            }
+            catch (Exception ex)
+            {
+                ShowFailedTitle(ex.Message);
+            }
+            finally
+            {
+                ResumePreviewAfter(500);
+                OnStopSession();
+                HideAuthenticatingLabelPanel();
+                _busy = false;
+                _authenticator.Disconnect();
+            }
+        }
+
+        // Extract faceprints job using host only and save in memory the result
+        private bool EnrollImageOne2OneHostJob(EnrollImageRecord enrollRecord, bool isBatch)
+        {
+            var success = false;
+            try
+            {
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, false);
+                OnStartSession($"Enroll {enrollRecord.UserId}", true);
+                // show uploaded image on preview panel
+                NormalDispatch(() =>
+                {
+                    var bi = ImageHelper.BitmapToImageSource(bitmap);
+                    // flip back horizontally since the preview canvas is flipped
+                    var transform = new ScaleTransform { ScaleX = -1 };
+                    var image = new Image
+                    {
+                        Source = bi,
+                        RenderTransformOrigin = new Point(0.5, 0.5),
+                        RenderTransform = transform,
+                        Height = 250,
+                    };
+                    var border = new Border
+                    {
+                        BorderThickness = new Thickness(2),
+                        BorderBrush = Brushes.White,
+                        Child = image
+                    };
+
+                    PreviewCanvas.Children.Add(border);
+                    Canvas.SetRight(border, 16);
+                    Canvas.SetTop(border, 205);
+                });
+
+                ShowProgressTitle("Extracting Features..");
+                _busy = true;
+
+                var features = new rsid.ExtractedFaceprints();
+                var status = _authenticator.ExtractFaceprintsOnHost(buffer, w, h, ref features);
+
+                var logMsg = status == Status.Ok ? "Extract success" : status.ToString();
+                VerifyResult(status == Status.Ok, logMsg, logMsg);
+                if (status == Status.Ok)
+                {
+                    _lastEnrolledUserId = enrollRecord.UserId;
+                    // convert to Faceprints object (db format)
+                    _lastOne2OneEnrolledFaceprints.featuresType = features.featuresType;
+                    _lastOne2OneEnrolledFaceprints.version = features.version;
+                    _lastOne2OneEnrolledFaceprints.flags = features.flags;
+                    _lastOne2OneEnrolledFaceprints.adaptiveDescriptorWithoutMask = features.featuresVector;
+
+                    RefreshUserListServer();
+                }
+                success = status == Status.Ok;
+
+            }
+            catch (Exception ex)
+            {
+                ShowFailedTitle(ex.Message);
+                OnStopSession();
+            }
+            finally
+            {
+                if (!isBatch) OnStopSession();
+                HideEnrollingLabelPanel();
+                _busy = false;
+            }
+            return success;
+        }
+
+        private void OnAuthExtractionResultOne2One(AuthStatus status, IntPtr faceprintsHandle, IntPtr ctx)
+        {
+            ShowLog($"OnAuthExtractionResult status: {status}");
+            if (_cancelWasCalled)
+            {
+                ShowSuccessTitle("Canceled");
+            }
+            else if (status == rsid.AuthStatus.Success)
+            {
+                var faceprints = (rsid.ExtractedFaceprints)Marshal.PtrToStructure(faceprintsHandle, typeof(rsid.ExtractedFaceprints));
+                rsid.MatchElement faceprintsToMatchObject = new rsid.MatchElement
+                {
+                    version = faceprints.version,
+                    flags = 0,
+                    featuresVector = faceprints.featuresVector
+                };
+
+                MatchArgs matchArgs = new MatchArgs
+                {
+                    newFaceprints = faceprintsToMatchObject,
+                    existingFaceprints = _lastOne2OneEnrolledFaceprints,
+                    updatedFaceprints = new Faceprints(),
+                    matcherConfidenceLevel = _deviceState.DeviceConfig.matcherConfidenceLevel
+                };
+
+                var matchResult = _authenticator.MatchFaceprintsToFaceprints(ref matchArgs);
+                ShowLog($"Match result: {matchResult.success}, Score: {matchResult.score}");
+                if (matchResult.success == 1)
+                {
+                    VerifyResultAuth(AuthStatus.Success, _lastEnrolledUserId, "Authenticated");
+                }
+                else
+                {
+                    VerifyResultAuth(AuthStatus.Forbidden, string.Empty, "Forbidden");
+                }
+            }
+            else
+            {
+                VerifyResultAuth(status, string.Empty, status.ToString());
+            }
+        }
+
+        // Authenticate faceprints extraction job using previously extracted faceprints
+        private void AuthenticateExtractFaceprintsOne2OneJob(Object threadContext)
+        {
+            if (!ConnectAuth()) return;
+            OnStartSession("Extracting Faceprints", true);
+            try
+            {
+                var authExtArgs = new AuthExtractArgs
+                {
+                    hintClbk = OnAuthHint,
+                    resultClbk = OnAuthExtractionResultOne2One,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
+                    ctx = IntPtr.Zero
+                };
+                ShowProgressTitle("Extracting Faceprints");
+                _busy = true;
+                PausePreview();
+                Status status = _authenticator.AuthenticateExtractFaceprints(authExtArgs);
+                if (status != Status.Ok)
+                    ShowFailedTitle(status.ToString());
+            }
+            catch (Exception ex)
+            {
+                ShowFailedTitle(ex.Message);
+            }
+            finally
+            {
+                ResumePreviewAfter(500);
+                OnStopSession();
+                HideAuthenticatingLabelPanel();
+                _authenticator.Disconnect();
+                _busy = false;
+
+            }
+        }
+#endif //RSID_ONE2ONE
+
         // Authentication loop job
         private void AuthenticateLoopJob(Object threadContext)
         {
@@ -2687,19 +3823,21 @@ namespace rsid_wrapper_csharp
                 {
                     hintClbk = OnAuthHint,
                     resultClbk = OnAuthResult,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                     ctx = IntPtr.Zero
                 };
 
-                ShowProgressTitle("Authenticating..");
                 _busy = true;
-                _authenticator.AuthenticateLoop(authArgs);
+                ExecuteAlgoFlow(_operationMode, authArgs, true);
             }
             catch (Exception ex)
             {
                 try
                 {
-                    _authenticator.Cancel(); //try to cancel the auth loop
+                    _authenticator.Cancel();
                 }
                 catch
                 {
@@ -2728,7 +3866,10 @@ namespace rsid_wrapper_csharp
                 {
                     hintClbk = OnAuthHint,
                     resultClbk = OnAuthExtractionResult,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                     ctx = IntPtr.Zero
                 };
                 ShowProgressTitle("Extracting Faceprints");
@@ -2765,10 +3906,13 @@ namespace rsid_wrapper_csharp
                 {
                     hintClbk = OnAuthHint,
                     resultClbk = OnAuthLoopExtractionResult,
-                    faceDetectedClbk = OnFaceDeteced,
+                    faceDetectedClbk = OnFaceDetected,
+                    landmarksDetectedClbk = OnLandmarksDetected,
+                    faceDistancesClbk = OnFaceDistances,
+                    faceCroppedImageClbk = OnFaceCroppedImage,
                     ctx = IntPtr.Zero
                 };
-                ShowProgressTitle("Authenticating..");
+                ShowProgressTitle("Authenticating...");
                 _busy = true;
                 _authenticator.AuthenticateLoopExtractFaceprints(authLoopExtArgs);
             }
@@ -2861,11 +4005,20 @@ namespace rsid_wrapper_csharp
         {
             if (!ConnectAuth()) return;
 
-            (DeviceConfig? prevDeviceConfig, var deviceConfig, var prevPreviewConfig, var PreviewConfig, var flowMode) =
-                ((DeviceConfig?, DeviceConfig, PreviewConfig, PreviewConfig, FlowMode))threadContext;
+            (DeviceConfig? prevDeviceConfig, var deviceConfig, var prevPreviewConfig, var PreviewConfig, var flowMode, var viewerAlgoFlow) =
+                ((DeviceConfig?, DeviceConfig, PreviewConfig, PreviewConfig, FlowMode, OperationMode))threadContext;
             OnStartSession("SetDeviceConfig", false);
             try
             {
+                // DB on Host is not supported with Spoof Only or Face Detection Only algo flows
+                if (flowMode == FlowMode.Server &&
+                    (deviceConfig.algoFlow == DeviceConfig.AlgoFlow.SpoofOnly ||
+                     deviceConfig.algoFlow == DeviceConfig.AlgoFlow.FaceDetectionOnly))
+                {
+                    ShowLog("DB on Host is not supported with Spoof Only or Face Detection Only algo flows");
+                    throw new Exception("Invalid settings");                
+                }
+                
                 ShowProgressTitle("SetDeviceConfig");
 
                 PreviewConfig.deviceType = _deviceState.deviceType;
@@ -2882,8 +4035,8 @@ namespace rsid_wrapper_csharp
                     }
                 }
 
+                _deviceState.PreviewConfig = PreviewConfig;
                 LogDeviceConfig(deviceConfig);
-
 
                 if (prevDeviceConfig.HasValue)
                 {
@@ -2911,6 +4064,7 @@ namespace rsid_wrapper_csharp
                     }
 
                     _deviceState.DeviceConfig = deviceConfig;
+                    _operationMode = viewerAlgoFlow;
 
                     if (_deviceState.PreviewConfig.previewMode != PreviewMode.RAW10_1080P)
                         InvokePreviewVisibility(Visibility.Visible);
@@ -2965,6 +4119,7 @@ namespace rsid_wrapper_csharp
             finally
             {
                 OnStopSession();
+                _authenticator.Disconnect();
             }
         }
 
@@ -2983,7 +4138,7 @@ namespace rsid_wrapper_csharp
             var deviceType = Discover.DiscoverDeviceType(_deviceState.SerialConfig.port);
             using (var fwUpdater = new FwUpdater(deviceType))
             {
-                BackgroundDispatch(() => _progressBar.Show());
+                NormalDispatch(() => _progressBar.Show());
                 var versions = fwUpdater.ExtractFwVersion(binPath);
                 var newFwVersion = versions?.OpfwVersion;
 
@@ -2993,9 +4148,75 @@ namespace rsid_wrapper_csharp
                     ShowErrorMessage("FW Update Error", "Unable to parse the selected firmware file.");
                     return;
                 }
+
+                var fwUpdateSettings = new FwUpdater.FwUpdateSettings
+                {
+                    port = _deviceState.SerialConfig.port,
+                    force_full = forceUpdate ? 1 : 0
+                };
+
+                // Run hardware compatibility checks before the SDK version check so that SKU,
+                // device type, and DB version warnings are always surfaced to the user even when
+                // the firmware version is incompatible with the current SDK.
+                fwUpdater.CheckCompatibility(fwUpdateSettings, binPath, out var compatInfo);
+                if (!compatInfo.IsOtpSkuCompatible)
+                {
+                    CloseProgressBar();
+                    string msg;
+                    if (compatInfo.DeviceOtpSku < 0)
+                        msg = "Failed to determine OTP encryption SKU.\nCheck device connection and try again.";
+                    else
+                        msg = $"Firmware OTP SKU mismatch: device is SKU{compatInfo.DeviceOtpSku}, firmware targets SKU{compatInfo.ExpectedOtpSku}.\n" +
+                              $"Make sure the firmware file is for SKU{compatInfo.DeviceOtpSku} devices and try again.";
+                    ShowErrorMessage("Incompatible firmware OTP SKU", msg);
+                    return;
+                }
+                if (!compatInfo.IsSecureBootCompatible)
+                {
+                    CloseProgressBar();
+                    string msg;
+                    if (compatInfo.DeviceSecureBoot < 0)
+                        msg = "Failed to determine secure boot variant.\nCheck device connection and try again.";
+                    else
+                    {
+                        var expectedName = compatInfo.DeviceSecureBoot == 0 ? "is NOT SIGNED" : "is SIGNED";
+                        msg = $"Firmware security mismatch: make sure the firmware file {expectedName} and try again.";
+                    }
+                    ShowErrorMessage("Incompatible firmware security variant", msg);
+                    return;
+                }
+                if (!compatInfo.IsDeviceTypeCompatible)
+                {
+                    CloseProgressBar();
+                    if (compatInfo.ConnectedDeviceType < 0 || compatInfo.ExpectedDeviceType < 0 || compatInfo.ConnectedDeviceType > 2 || compatInfo.ExpectedDeviceType > 2)
+                    {
+                        ShowErrorMessage("Incompatible firmware device type", "Failed to determine device type compatibility. Check device connection and try again.");
+                        return;
+                    }
+                    var connectionDevice = compatInfo.ConnectedDeviceType == 0 ? "F45x" : compatInfo.ConnectedDeviceType == 1 ? "F46x" : "F50x";
+                    var binaryDevice = compatInfo.ExpectedDeviceType == 0 ? "F45x" : compatInfo.ExpectedDeviceType == 1 ? "F46x" : "F50x";
+                    var msg = $"Firmware device type mismatch ! connected device type ({connectionDevice}) does not match the selected firmware ({binaryDevice}).\n";
+                    ShowErrorMessage("Incompatible firmware device type", msg);
+                    return;
+                }
+
+                if (!compatInfo.IsDbCompatible)
+                {
+                    var msg = $"DB version mismatch (device: v{compatInfo.DeviceDbVer}, firmware: v{compatInfo.ExpectedDbVer}).\n\n" +
+                              "The database may be erased after the update.\n Export it first if needed.\n\n" +
+                              "Proceed with the firmware update?";
+                    bool proceed = false;
+                    Dispatcher.Invoke(() => { proceed = ShowWindowDialog(new OKCancelDialog("DB Version Mismatch", msg, isYesNo: true)) == true; });
+                    if (!proceed)
+                    {
+                        CloseProgressBar();
+                        return;
+                    }
+                }
+
                 if (!forceUpdate)
                 {
-                    // todo gabi auto detect device type                    
+                    // todo gabi auto detect device type
                     var isCompatible =
                         _deviceState.deviceType == versions.Value.DeviceType &&
                         Authenticator.IsFwCompatibleWithHost(_deviceState.deviceType, newFwVersion);
@@ -3010,22 +4231,6 @@ namespace rsid_wrapper_csharp
                         ShowErrorMessage("Incompatible FW Version", msg);
                         return;
                     }
-                }
-
-                var fwUpdateSettings = new FwUpdater.FwUpdateSettings
-                {
-                    port = _deviceState.SerialConfig.port,
-                    force_full = forceUpdate ? 1 : 0
-                };
-
-                var isSkuCompatible = fwUpdater.IsSkuCompatible(fwUpdateSettings, binPath, out int expectedSkuVer, out int deviceSkuVer);
-                if (!isSkuCompatible)
-                {
-                    CloseProgressBar();
-                    var msg = "Selected firmware version is incompatible with your F450 model.\n";
-                    msg += "Please make sure the firmware file you're using is for SKU" + deviceSkuVer + " devices and try again.\n";
-                    ShowErrorMessage("Incompatible firmware encryption version", msg);
-                    return;
                 }
 
                 _authenticator?.Disconnect();
@@ -3197,7 +4402,7 @@ namespace rsid_wrapper_csharp
             }
             finally
             {
-                RenderDispatch(() => TemperatureLabel.Content = labelText);
+                NormalDispatch(() => TemperatureLabel.Content = labelText);
                 _busy = false;
             }
         }

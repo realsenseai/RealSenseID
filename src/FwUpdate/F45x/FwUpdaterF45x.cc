@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/DeviceController.h"
 #include "RealSenseID/FwUpdater.h"
@@ -81,55 +81,86 @@ bool FwUpdaterF45x::ExtractFwInformation(const char* binPath, std::string& outFw
     }
 }
 
-bool FwUpdaterF45x::IsSkuCompatible(const FwUpdater::Settings& settings, const char* binPath, int& expectedSkuVer, int& deviceSkuVer) const
+bool FwUpdaterF45x::CheckCompatibility(const FwUpdater::Settings& settings, const char* binPath, FwUpdater::FwCompatibilityInfo& info) const
 {
-    expectedSkuVer = -1;
-    deviceSkuVer = -1;
     try
     {
-        uint8_t binOtpEncVer = ParseUfifToOtpEncryption(binPath);
-        expectedSkuVer = static_cast<int>(binOtpEncVer) + 1;
-        uint8_t deviceOtpEncVer = 0;
+        // Parse all binary metadata in one file open.
+        auto meta = FwUpdateF45x::ParseUfifMetadata(binPath);
+        info.expectedOtpSku = static_cast<int>(meta.otpEncryptVersion) + 1;
+        info.expectedDbVer = static_cast<int>(meta.dbVersion);
+        info.expectedDeviceType = static_cast<int>(meta.deviceType);
+
+        // F45x always handles F450 (device type 0); no device query needed for this.
+        info.connectedDeviceType = 0;
+
+        // Single connection for all remaining device queries.
         RealSenseID::DeviceController device_controller(DeviceType::F45x);
         Status s = device_controller.Connect(settings.serial_config);
         if (s != Status::Ok)
         {
             throw std::runtime_error("Failed to connect to device");
         }
+
+        // OTP SKU: try QueryOtpVersion, fall back to serial number pattern.
+        uint8_t deviceOtpEncVer = 0;
         s = device_controller.QueryOtpVersion(deviceOtpEncVer);
         if (s == Status::Ok)
         {
-            deviceSkuVer = (deviceOtpEncVer - '0') + 1;
-            LOG_INFO(LOG_TAG, "QueryOtpVersion: SKU %d", deviceSkuVer);
+            info.deviceOtpSku = (deviceOtpEncVer - '0') + 1;
+            LOG_INFO(LOG_TAG, "QueryOtpVersion: OTP SKU %d", info.deviceOtpSku);
         }
         else
         {
-            // older fw versions do not support querying otp version. Use serial number to decide
-            LOG_INFO(LOG_TAG, "Device does not support QueryOtpVersion. Quering SN");
+            // Older firmware versions do not support querying OTP version; fall back to serial number.
+            LOG_INFO(LOG_TAG, "Device does not support QueryOtpVersion. Querying SN");
             std::string sn;
             if (device_controller.QuerySerialNumber(sn) != Status::Ok)
             {
-                LOG_INFO(LOG_TAG, "Failed getting serial number. Assuming SKU compatible");
-                return true;
+                LOG_INFO(LOG_TAG, "Failed getting serial number. Assuming OTP SKU compatible");
+                // Preserve original behaviour: treat as compatible and skip remaining checks.
+                info.deviceOtpSku = info.expectedOtpSku;
+                return info.IsAllCompatible();
             }
-            /*
-             * Examples of SKU2
-             * 120X6228XXXXXXXXXXXXXXXX-XXX
-             * 122X6228XXXXXXXXXXXXXXXX-XXX
-             * XXXX6229XXXXXXXXXXXXXXXX-XXX
-             */
-            const std::regex reg1("12[02]\\d6228\\d{4}.*");
-            const std::regex reg2("\\d{4}6229\\d{4}.*");
-            const std::regex reg3("\\d{4}62[3-9]\\d{5}.*");
-            if (std::regex_match(sn, reg1) || std::regex_match(sn, reg2) || std::regex_match(sn, reg3))
-                deviceSkuVer = 2;
             else
-                deviceSkuVer = 1;
-
-            LOG_INFO(LOG_TAG, "SN to SKU: %s -> SKU %d", sn.c_str(), deviceSkuVer);
+            {
+                /*
+                 * Examples of SKU2
+                 * 120X6228XXXXXXXXXXXXXXXX-XXX
+                 * 122X6228XXXXXXXXXXXXXXXX-XXX
+                 * XXXX6229XXXXXXXXXXXXXXXX-XXX
+                 */
+                const std::regex reg1("12[02]\\d6228\\d{4}.*");
+                const std::regex reg2("\\d{4}6229\\d{4}.*");
+                const std::regex reg3("\\d{4}62[3-9]\\d{5}.*");
+                info.deviceOtpSku = (std::regex_match(sn, reg1) || std::regex_match(sn, reg2) || std::regex_match(sn, reg3)) ? 2 : 1;
+                LOG_INFO(LOG_TAG, "SN to OTP SKU: %s -> SKU %d", sn.c_str(), info.deviceOtpSku);
+            }
         }
 
-        return expectedSkuVer == deviceSkuVer;
+        // DB version: udb_ver = DB_VER in F450 firmware.
+        // Soft-fail: older F450 firmware may not support bspver; leave deviceDbVer = -1 in that case
+        // (IsDbCompatible skips the check when either value is -1).
+        std::string bspver;
+        s = device_controller.QueryBspVer(bspver);
+        if (s == Status::Ok)
+        {
+            const std::regex udb_ver_rgx(R"(udb_ver:\s*(\d+))");
+            std::smatch match;
+            if (std::regex_search(bspver, match, udb_ver_rgx))
+                info.deviceDbVer = std::stoi(match[1].str());
+            else
+                LOG_WARNING(LOG_TAG, "Failed to parse udb_ver from bspver, DB version check skipped");
+        }
+        else
+        {
+            LOG_WARNING(LOG_TAG, "bspver not supported on this device, DB version check skipped");
+        }
+
+        LOG_INFO(LOG_TAG, "OtpSku: binary=%d device=%d, DB: binary=%d device=%d, Type: binary=%d device=%d", info.expectedOtpSku,
+                 info.deviceOtpSku, info.expectedDbVer, info.deviceDbVer, info.expectedDeviceType, info.connectedDeviceType);
+
+        return info.IsAllCompatible();
     }
     catch (const std::exception& ex)
     {

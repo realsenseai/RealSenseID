@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -14,8 +14,10 @@
 
 #include "RealSenseID/Status.h"
 #include "RealSenseID/MatcherDefines.h"
+
 #include <cstddef>
 #include <string>
+#include <functional>
 
 #ifdef RSID_SECURE
 #include "RealSenseID/SignatureCallback.h"
@@ -116,16 +118,6 @@ public:
     EnrollStatus EnrollImage(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height);
 
     /**
-     * Enroll a user using a normalized cropped image of his face.
-     * Note: The image should be provided only by our face detection and image normalization code (see reference in our sample applications)
-     * Important: This API clears the DB.
-     * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
-     * @param[in] buffer bgr24 144x144 image buffer of the enrolled user
-     * @return EnrollStatus (EnrollStatus::Success on success).
-     */
-    EnrollStatus EnrollCroppedFaceImage(const char* user_id, const unsigned char* buffer);
-
-    /**
      * Extract features from RGB image.
      * Note: The face should occupy at least 75% of image area
      * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
@@ -158,6 +150,34 @@ public:
      * @return Status (Status::Ok on success).
      */
     Status AuthenticateLoop(AuthenticationCallback& callback);
+
+    /**
+     * @brief Person Detection Loop (F500 and above)
+     * @note return false from callback to stop the loop
+     */
+    using PersonCallback = std::function<bool(const std::vector<PersonRect>& persons, unsigned int ts, AuthenticateStatus status)>;
+    Status DetectPersons(const PersonCallback& callback, bool loop);
+
+    /**
+     * @brief Pose Estimation Loop (F500 and above)
+     * @note return false from callback to stop the loop
+     */
+    using PoseCallback = std::function<bool(const std::vector<PersonPose>& poses, unsigned int ts, AuthenticateStatus status)>;
+    Status DetectPoses(const PoseCallback& callback, bool loop);
+
+    /**
+     * @brief Body Part Detection Loop (F500 and above)
+     * @note return false from callback to stop the loop
+     */
+    using BodyPartCallback = std::function<bool(const std::vector<PersonRect>& bodyParts, unsigned int ts, AuthenticateStatus status)>;
+    Status DetectBodyParts(const BodyPartCallback& callback, bool loop);
+
+    /**
+     * @brief Barcode Decoding Loop (F500 and above)
+     * @note return false from callback to stop the loop
+     */
+    using BarcodeCallback = std::function<bool(const std::vector<std::string>& barcodes, unsigned int ts, AuthenticateStatus status)>;
+    Status DecodeBarcodes(const BarcodeCallback& callback, bool loop);
 
     /**
      * Cancel currently running operation.
@@ -237,6 +257,68 @@ public:
      */
     Status Unlock();
 
+#ifdef RSID_ONE2ONE
+    /**************************************************************************/
+    /************************ One to One Mode Methods *************************/
+    /**************************************************************************/
+
+    /**
+     * Enroll a user using an image of his face.
+     * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
+     * @param[in] buffer bgr24 image buffer of the enrolled user face.
+     * @param[in] width image width in pixels (valid range 80-10000).
+     * @param[in] height image height in pixels (valid range 80-10000).
+     * @return EnrollStatus (EnrollStatus::Success on success).
+     */
+    EnrollStatus EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height);
+
+    /**
+     * Attempt to authenticate.
+     * Starts the authentication procedure, which starts the camera, captures frames and tries to match
+     * the user in front of the camera to the last enrolled user from EnrollImageOneToOne().
+     * During the process callbacks will be called to provide information if needed.
+     * Once process is done, camera will be closed properly and device will be in ready state.
+     *
+     * @param[in] callback User defined callback object to handle the process updates.
+     * @return Status (Status::Ok on success).
+     */
+    Status AuthenticateOneToOne(AuthenticationCallback& callback);
+
+    /**
+     * Attempt to authenticate a user using an image of his face.
+     * @param[in] buffer bgr24 image buffer of the authenticated user face.
+     * @param[in] width image width in pixels (valid range 80-10000).
+     * @param[in] height image height in pixels (valid range 80-10000).
+     * @param[in] user_id authenticated user in case of success, empty string otherwise.
+     * @param[in] score Matching score result.
+     * @return AuthenticateStatus (AuthenticateStatus::Success on success).
+     */
+    AuthenticateStatus AuthenticateImageOneToOne(const unsigned char* buffer, unsigned int width, unsigned int height, std::string& user_id,
+                                                 short& score);
+
+    /*
+     * Extract faceprints from an image using the host pipeline (no device involved).
+     * @param[in] buffer bgr24 image buffer of the face.
+     * @param[in] width image width in pixels (valid range 80-10000).
+     * @param[in] height image height in pixels (valid range 80-10000).
+     * @param[out] pExtractedFaceprints the extracted faceprints from the image.
+     * @return Status (Status::Ok on success).
+     */
+    Status ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
+                                   ExtractedFaceprints* pExtractedFaceprints);
+
+    /*
+     * Find face in an image using the host pipeline (no device involved).
+     * @param[in] buffer bgr24 image buffer
+     * @param[in] width image width in pixels (valid range 80-10000).
+     * @param[in] height image height in pixels (valid range 80-10000).
+     * @param[out] result the face rectangle result if any.
+     * @return Status (Status::Ok on success).
+     */
+    Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result);
+
+#endif // RSID_ONE2ONE
+
     /**************************************************************************/
     /*************************** Host Mode Methods ****************************/
     /**************************************************************************/
@@ -306,6 +388,32 @@ public:
      * @return Status (Status::Ok on success).
      */
     Status SetUsersFaceprints(UserFaceprints* user_features, unsigned int num_of_users);
+
+    /**
+     * @brief Dump debug data and enter mount mode.
+     *
+     * Writes debug data to flash, then enters mass-storage mode for retrieval.
+     * May take 1 to 2 minutes.
+     * After this action, the device is not operational; it can only be used to access the mounted debug data.
+     * Reset to resume normal operation.
+     *
+     * Note Supported only on F500 and later devices
+     *
+     * @return Status::Ok on success.
+     */
+    Status DumpAndMount();
+
+    /**
+     * @brief Enter mount mode.
+     *
+     * After this action, the device is not operational; it can only be used to access the mounted debug data.
+     * Reset to resume normal operation.
+     *
+     * Note: Supported only on F500 and later
+     *
+     * @return Status::Ok on success.
+     */
+    Status MountDebug();
 
 private:
     Impl::IFaceAuthenticator* _impl = nullptr;

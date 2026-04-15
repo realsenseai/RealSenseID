@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -10,7 +10,11 @@
 #include <stddef.h>
 #include "../../../../include/RealSenseID/FaceprintsDefines.h"
 
-#define RSID_MAX_FACES 10 // max number of detected faces in single frame
+#define RSID_MAX_FACES       5  // max number of detected faces in single frame
+#define RSID_MAX_PERSONS     35 // max number of detected person-related objects in single frame
+#define RSID_MAX_BARCODES    3  // max number of decoded barcodes in single frame
+#define RSID_PERSON_POSE_LMS 17 // max number of decoded person pose landmarks in single frame
+#define RSID_MAX_ROIS        5  // max number of detection ROIs
 
 #ifdef __cplusplus
 extern "C"
@@ -24,14 +28,33 @@ extern "C"
 
     typedef struct
     {
+        unsigned short x;
+        unsigned short y;
+        unsigned short width;
+        unsigned short height;
+    } rsid_detection_roi;
+
+    typedef struct
+    {
         rsid_camera_rotation_type camera_rotation;
         rsid_security_level_type security_level;
         rsid_algo_mode_type algo_mode;
+        rsid_face_selection_policy face_selection_policy;
         rsid_dump_mode dump_mode;
         rsid_matcher_confidence_level_type matcher_confidence_level;
         unsigned char max_spoofs;
         int gpio_auth_toggling;
         rsid_frontal_face_policy_type frontal_face_policy;
+        rsid_person_motion_mode_type person_motion_mode;
+        unsigned short match_thresh;
+        unsigned short manual_exposure_time_us;
+        unsigned short manual_gain;
+        unsigned char rect_enable;
+        unsigned char landmarks_enable;
+        rsid_detection_roi rois[RSID_MAX_ROIS];
+        unsigned char num_rois;
+        rsid_distance_limit_type distance_limit;
+        unsigned char distance_enabled;
     } rsid_device_config;
 
     typedef struct
@@ -43,10 +66,51 @@ extern "C"
         uint32_t h;
     } rsid_face_rect;
 
+    typedef enum
+    {
+        RSID_BodyPart_Person = 0,
+        RSID_BodyPart_Foot = 1,
+        RSID_BodyPart_Arm = 2,
+        RSID_BodyPart_Leg = 3,
+        RSID_BodyPart_Hand = 4,
+        RSID_BodyPart_Torso = 5
+    } rsid_body_part_type;
+
+    typedef struct
+    {
+        /* Left eye, right eye, nose tip, mouth left, mouth right*/
+        uint32_t lm_x[5];
+        uint32_t lm_y[5];
+    } rsid_face_landmarks;
+
+    typedef struct
+    {
+        uint32_t x;
+        uint32_t y;
+        uint32_t w;
+        uint32_t h;
+        uint32_t id;
+        uint32_t distance;
+        rsid_body_part_type body_part;
+    } rsid_person_rect;
+
+    typedef struct
+    {
+        uint32_t x;
+        uint32_t y;
+        uint32_t w;
+        uint32_t h;
+        uint32_t lm_x[RSID_PERSON_POSE_LMS];
+        uint32_t lm_y[RSID_PERSON_POSE_LMS];
+        float lm_score[RSID_PERSON_POSE_LMS];
+    } rsid_person_pose;
+
     typedef struct
     {
         char serial_port[256];
         rsid_device_type device_type;
+        char serial_number[256];
+        int camera_number; // -1 is unknown
     } rsid_device_info;
 
     typedef struct
@@ -97,53 +161,80 @@ typedef struct ExtractedFaceprintsElement rsid_extracted_faceprints_t;
     } rsid_signature_clbk;
 
     /* rsid_authenticate() args */
-    typedef void (*rsid_auth_status_clbk)(rsid_auth_status status, const char* user_id, void* ctx);
-    typedef void (*rsid_auth_hint_clbk)(rsid_auth_status hint, void* ctx);
+    typedef void (*rsid_auth_status_clbk)(rsid_auth_status status, const char* user_id, short score, void* ctx);
+    typedef void (*rsid_auth_hint_clbk)(rsid_auth_status hint, float frameScore, void* ctx);
     typedef void (*rsid_face_detected_clbk)(const rsid_face_rect faces[], size_t n_faces, unsigned int ts, void* ctx);
+    typedef void (*rsid_landmarks_detected_clbk)(const rsid_face_landmarks landmarks[], size_t n_faces, unsigned int ts, void* ctx);
+    typedef void (*rsid_person_detected_clbk)(const rsid_person_rect persons[], size_t n_persons, unsigned int ts, void* ctx);
+    typedef void (*rsid_person_pose_detected_clbk)(const rsid_person_pose poses[], size_t n_poses, unsigned int ts, void* ctx);
+    typedef void (*rsid_barcode_decoded_clbk)(const char* barcodes[], size_t n_barcodes, unsigned int ts, void* ctx);
+    typedef void (*rsid_face_distances_clbk)(const double distances[], size_t n_distances, unsigned int ts, void* ctx);
+    typedef void (*rsid_face_cropped_image_clbk)(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                                                 const unsigned int ts, void* ctx);
+
+    /* Detection loop callbacks - return 0 to stop the loop, 1 to continue */
+    typedef int (*rsid_person_detection_clbk)(const rsid_person_rect persons[], size_t n_persons, unsigned int ts, rsid_auth_status status,
+                                              void* ctx);
+    typedef int (*rsid_pose_detection_clbk)(const rsid_person_pose poses[], size_t n_poses, unsigned int ts, rsid_auth_status status,
+                                            void* ctx);
+    typedef int (*rsid_barcode_detection_clbk)(const char* barcodes[], size_t n_barcodes, unsigned int ts, rsid_auth_status status,
+                                               void* ctx);
+    typedef int (*rsid_body_part_detection_clbk)(const rsid_person_rect body_parts[], size_t n_body_parts, unsigned int ts,
+                                                 rsid_auth_status status, void* ctx);
 
 
     typedef struct rsid_auth_args
     {
-        rsid_auth_status_clbk result_clbk;          /* result callback */
-        rsid_auth_hint_clbk hint_clbk;              /* hint callback */
-        rsid_face_detected_clbk face_detected_clbk; /* face detected callback (set to NULL if not needed)*/
-        void* ctx;                                  /* user defined context (optional) */
+        rsid_auth_status_clbk result_clbk;                    /* result callback */
+        rsid_auth_hint_clbk hint_clbk;                        /* hint callback */
+        rsid_face_detected_clbk face_detected_clbk;           /* face detected callback (set to NULL if not needed) */
+        rsid_landmarks_detected_clbk landmarks_detected_clbk; /* face landmarks detected callback (set to NULL if not needed) */
+        rsid_face_distances_clbk face_distances_clbk;         /* face distances callback (set to NULL if not needed) */
+        rsid_face_cropped_image_clbk face_cropped_image_clbk; /* face cropped image callback (set to NULL if not needed) */
+        void* ctx;                                            /* user defined context (optional) */
     } rsid_auth_args;
 
     /* rsid_enroll() args */
     typedef void (*rsid_enroll_status_clbk)(rsid_enroll_status status, void* ctx);
     typedef void (*rsid_enroll_progress_clbk)(rsid_face_pose face_pose, void* ctx);
-    typedef void (*rsid_enroll_hint_clbk)(rsid_enroll_status hint, void* ctx);
+    typedef void (*rsid_enroll_hint_clbk)(rsid_enroll_status hint, float frameScore, void* ctx);
     typedef struct rsid_enroll_args
     {
         const char* user_id;                     /* user id. null terminated c string of ascii chars (max 30 chars + 1 terminating null) */
         rsid_enroll_status_clbk status_clbk;     /* status callback */
         rsid_enroll_progress_clbk progress_clbk; /* progress callback */
         rsid_enroll_hint_clbk hint_clbk;         /* hint calback */
-        rsid_face_detected_clbk face_detected_clbk; /* face detected callback (set to NULL if not needed)*/
-        void* ctx;                                  /* user defined context (optional, set to null if not needed) */
+        rsid_face_detected_clbk face_detected_clbk;           /* face detected callback (set to NULL if not needed) */
+        rsid_landmarks_detected_clbk landmarks_detected_clbk; /* landmarks detected callback (set to NULL if not needed) */
+        rsid_face_cropped_image_clbk face_cropped_image_clbk; /* face cropped image callback (set to NULL if not needed) */
+        void* ctx;                                            /* user defined context (optional, set to null if not needed) */
     } rsid_enroll_args;
 
     /* rsid_extract_faceprints_for_auth() args */
     typedef void (*rsid_faceprints_ext_status_clbk)(rsid_auth_status status, const rsid_extracted_faceprints_t* faceprints, void* ctx);
     typedef struct rsid_faceprints_ext_args // TODO: change name to rsid_auth_ext_args
     {
-        rsid_faceprints_ext_status_clbk result_clbk; /* result callback */
-        rsid_auth_hint_clbk hint_clbk;               /* hint callback */
-        rsid_face_detected_clbk face_detected_clbk;  /* face detected callback (set to NULL if not needed)*/
-        rsid_extracted_faceprints_t* faceprints;     /* extracted faceprints*/
-        void* ctx;                                   /* user defined context (optional) */
+        rsid_faceprints_ext_status_clbk result_clbk;          /* result callback */
+        rsid_auth_hint_clbk hint_clbk;                        /* hint callback */
+        rsid_face_detected_clbk face_detected_clbk;           /* face detected callback (set to NULL if not needed)*/
+        rsid_landmarks_detected_clbk landmarks_detected_clbk; /* landmarks detected callback (set to NULL if not needed) */
+        rsid_face_distances_clbk face_distances_clbk;         /* face distances callback (set to NULL if not needed) */
+        rsid_face_cropped_image_clbk face_cropped_image_clbk; /* face cropped image callback (set to NULL if not needed) */
+        rsid_extracted_faceprints_t* faceprints;              /* extracted faceprints*/
+        void* ctx;                                            /* user defined context (optional) */
     } rsid_faceprints_ext_args;
 
     typedef void (*rsid_enroll_ext_status_clbk)(rsid_enroll_status status, const rsid_faceprints_t* faceprints, void* ctx);
 
     typedef struct rsid_enroll_ext_args
     {
-        rsid_enroll_ext_status_clbk status_clbk;    /* status callback */
-        rsid_enroll_progress_clbk progress_clbk;    /* progress callback */
-        rsid_enroll_hint_clbk hint_clbk;            /* hint callback */
-        rsid_face_detected_clbk face_detected_clbk; /* face detected callback (set to NULL if not needed)*/
-        void* ctx;                                  /* user defined context (optional, set to null if not needed) */
+        rsid_enroll_ext_status_clbk status_clbk;              /* status callback */
+        rsid_enroll_progress_clbk progress_clbk;              /* progress callback */
+        rsid_enroll_hint_clbk hint_clbk;                      /* hint callback */
+        rsid_face_detected_clbk face_detected_clbk;           /* face detected callback (set to NULL if not needed)*/
+        rsid_landmarks_detected_clbk landmarks_detected_clbk; /* landmarks detected callback (set to NULL if not needed) */
+        rsid_face_cropped_image_clbk face_cropped_image_clbk; /* face cropped image callback (set to NULL if not needed) */
+        void* ctx;                                            /* user defined context (optional, set to null if not needed) */
     } rsid_enroll_ext_args;
 
     /* rsid_match_faceprints() args */
@@ -162,11 +253,11 @@ typedef struct ExtractedFaceprintsElement rsid_extracted_faceprints_t;
 #ifdef RSID_SECURE
     RSID_C_API rsid_authenticator* rsid_create_authenticator(rsid_signature_clbk* signature_clbk);      // create F45x face authenticator
     RSID_C_API rsid_authenticator* rsid_create_authenticator_F45x(rsid_signature_clbk* signature_clbk); // create F45x face authenticator
-    RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(rsid_signature_clbk* signature_clbk); // create F46x face authenticator
+    RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(rsid_signature_clbk* signature_clbk); // create F50x face authenticator
 #else
 RSID_C_API rsid_authenticator* rsid_create_authenticator();      // create F45x face authenticator
 RSID_C_API rsid_authenticator* rsid_create_authenticator_F45x(); // create F45x face authenticator
-RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x face authenticator
+RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(); // create F50x face authenticator
 #endif //  RSID_SECURE
 
 
@@ -221,6 +312,20 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
 
     /* authenticate in an infinite loop until rsid_cancel is called */
     RSID_C_API rsid_status rsid_authenticate_loop(rsid_authenticator* authenticator, const rsid_auth_args* args);
+
+    /* person detection (F500 and above). Set loop=1 for continuous detection, loop=0 for single detection */
+    RSID_C_API rsid_status rsid_detect_persons(rsid_authenticator* authenticator, rsid_person_detection_clbk callback, int loop, void* ctx);
+
+    /* pose estimation (F500 and above). Set loop=1 for continuous detection, loop=0 for single detection */
+    RSID_C_API rsid_status rsid_detect_poses(rsid_authenticator* authenticator, rsid_pose_detection_clbk callback, int loop, void* ctx);
+
+    /* barcode decoding (F500 and above). Set loop=1 for continuous decoding, loop=0 for single decoding */
+    RSID_C_API rsid_status rsid_decode_barcodes(rsid_authenticator* authenticator, rsid_barcode_detection_clbk callback, int loop,
+                                                void* ctx);
+
+    /* body part detection (F500 and above). Set loop=1 for continuous detection, loop=0 for single detection */
+    RSID_C_API rsid_status rsid_detect_body_parts(rsid_authenticator* authenticator, rsid_body_part_detection_clbk callback, int loop,
+                                                  void* ctx);
 
     /* authenticate in an infinite loop until cancel is called */
     RSID_C_API rsid_status rsid_cancel(rsid_authenticator* authenticator);
@@ -282,6 +387,19 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
     RSID_C_API rsid_status rsid_set_users_faceprints(rsid_authenticator* authenticator, rsid_user_faceprints_dble* user_features,
                                                      const unsigned int number_of_users);
 
+    /**
+     * Dump debug data and enter mount mode.
+     *
+     * Writes debug data to flash, then enters mass-storage mode for retrieval.
+     * May take 1-2 minutes.
+     * After this action, the device is not operational; it can only be used to access the mounted debug data.
+     * Reset to resume normal operation.
+     */
+    RSID_C_API rsid_status rsid_dump_and_mount(rsid_authenticator* authenticator);
+
+    RSID_C_API rsid_status rsid_set_users_faceprints(rsid_authenticator* authenticator, rsid_user_faceprints_dble* user_features,
+                                                     const unsigned int number_of_users);
+
     /* Send device to standby */
     RSID_C_API rsid_status rsid_standby(rsid_authenticator* authenticator);
 
@@ -290,6 +408,27 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
 
     /* Unlock previously locked device due to too many spoof attempts*/
     RSID_C_API rsid_status rsid_unlock(rsid_authenticator* authenticator);
+
+#ifdef RSID_ONE2ONE
+    // OneToOne enroll image (see FaceAuthenticator.h for details)
+    RSID_C_API rsid_enroll_status rsid_enroll_image_one_to_one(rsid_authenticator* authenticator, const char* user_id,
+                                                               const unsigned char* buffer, unsigned width, unsigned height);
+
+    // OneToOne authenticate (see FaceAuthenticator.h for details)
+    RSID_C_API rsid_status rsid_authenticate_one_to_one(rsid_authenticator* authenticator, const rsid_auth_args* args);
+
+    // OneToOne authenticate image (see FaceAuthenticator.h for details)
+    RSID_C_API rsid_auth_status rsid_authenticate_image_one_to_one(rsid_authenticator* authenticator, const unsigned char* buffer,
+                                                                   unsigned width, unsigned height, char* user_id, short* score);
+
+    // ExtractImageFaceprints from image (see FaceAuthenticator.h for details)
+    RSID_C_API rsid_status rsid_extract_faceprints_on_host(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width,
+                                                           unsigned height, rsid_extracted_faceprints_t* c_faceprints);
+
+    // Find face in image (see FaceAuthenticator.h for details)
+    RSID_C_API rsid_status rsid_detect_face(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width, unsigned height,
+                                            rsid_face_rect* face_rect);
+#endif // RSID_SECURE
 
     /*
      * device controller functions
@@ -302,7 +441,7 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
     /* return new device controller pointer (or null on failure) */
     RSID_C_API rsid_device_controller* rsid_create_device_controller();      // create F45x controller
     RSID_C_API rsid_device_controller* rsid_create_device_controller_F45x(); // create F45x controller
-    RSID_C_API rsid_device_controller* rsid_create_device_controller_F46x(); // create F46x controller
+    RSID_C_API rsid_device_controller* rsid_create_device_controller_F50x(); // create F50x controller
 
     /* destroy the authenticator and free its resources */
     RSID_C_API void rsid_destroy_device_controller(rsid_device_controller* device_controller);
@@ -335,6 +474,12 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
     /* send color adjust message */
     RSID_C_API rsid_status rsid_set_color_gains(rsid_device_controller* device_controller, int red, int blue);
 
+    /* Reboot device */
+    RSID_C_API rsid_status rsid_reboot(rsid_device_controller* device_controller);
+
+    /* query bsp version */
+    RSID_C_API rsid_status rsid_query_bspver(rsid_device_controller* device_controller, char* output, size_t output_length);
+
     /*******************************/
     /***** host mode methods *****/
     /*******************************/
@@ -358,6 +503,7 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(); // create F46x 
 
     /* Return device type for the give serial port */
     RSID_C_API rsid_device_type rsid_discover_device_type(const char* serial_port);
+
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,88 @@
+<resources>
+  <string name="app_name">RealSenseID Sample</string>
+  <string name="navigation_drawer_open">Open navigation drawer</string>
+  <string name="navigation_drawer_close">Close navigation drawer</string>
+  <string name="nav_header_title">RealSenseID</string>
+  <string name="nav_header_subtitle"></string>
+  <string name="nav_header_desc">Navigation header</string>
+  <string name="action_settings">Settings</string>
+
+  <string name="menu_transform">Preview</string>
+  <string name="menu_reflow">Users</string>
+  <string name="menu_firmware">Firmware</string>
+  <string name="menu_settings">Settings</string>
+
+  <string name="button_authenticate">Authenticate</string>
+  <string name="button_enroll">Enroll</string>
+
+
+  <string name="lorem_ipsum_title">Lorem Ipsum"</string>
+  <string name="lorem_ipsum">Lorem Ipsum is simply placeholder text of the printing and
+        typesetting industry. Lorem Ipsum has been the industry\'s standard placeholder text ever
+        since the 1500s, when an unknown printer took a galley of type and scrambled it to make a
+        type specimen book"
+    </string>
+  <string name="fab_content_description">Represents a view to invoke an action</string>
+  <string name="image_view_item_transform_content_description">Represents an image view in the
+        item
+    </string>
+  <string name="delete">Delete</string>
+  <string name="host_mode">Host Mode</string>
+  <string name="dump_mode_none">None</string>
+  <string name="dump_mode_face">Face</string>
+  <string name="dump_mode_full">Full</string>
+  <string name="dump_mode">Dump Mode</string>
+  <string name="security_level">Security Level</string>
+  <string name="sec_level_high">High</string>
+  <string name="sec_level_medium">Medium</string>
+  <string name="sec_level_standard">Standard</string>
+  <string name="matcher_confidence_level">Matcher Confidence Level</string>
+  <string name="matcher_confidence_level_highest">Highest</string>
+  <string name="matcher_confidence_level_high">High</string>
+  <string name="matcher_confidence_level_standard">Standard</string>
+  <string name="op_mode_all">All</string>
+  <string name="op_mode_detect">Detect</string>
+  <string name="op_mode_spoof">Spoof</string>
+  <string name="op_mode_recognize">Recognition</string>
+  <string name="op_mode_person">Person</string>
+  <string name="op_mode">Operation Mode</string>
+  <string name="max_spoofs">Max Spoofs</string>
+  <string name="unlock">Unlock</string>
+  <string name="update_settings">Update Settings</string>
+  <string name="zero_degrees">0°</string>
+  <string name="ninety_degrees">90°</string>
+  <string name="one_eighty_degrees">180°</string>
+  <string name="two_seventy_degrees">270°</string>
+  <string name="camera_rotation">Camera Rotation</string>
+  <string name="firmware_version">Firmware Version</string>
+  <string name="host_version">Host Version</string>
+  <string name="flash_firmware">Flash Firmware</string>
+  <string name="flash_res">Flash (bundled firmware) - recommended</string>
+  <string name="flash">Flash (network) - WARNING: NOT COMPATIBLE</string>
+  <string name="flash_file">Flash (pick file) - not recommended</string>
+  <string name="enroll_image">Enroll Image</string>
+  <string name="fetch_device_logs">Fetch Device Logs</string>
+  <string name="log_management">Log Management</string>
+  <string name="rotate_clockwise">↻</string>
+  <string name="face_selection_single">Single</string>
+  <string name="face_selection_multi">Multi</string>
+  <string name="face_selection_text">Face Selection</string>
+  <string name="person_motion_mode_text">Person Motion Mode</string>
+  <string name="person_motion_static">Static</string>
+  <string name="person_motion_walkthrough">Walkthrough</string>
+  <string name="distance_limit_text">Distance Limit</string>
+  <string name="distance_limit_none">None</string>
+  <string name="distance_limit_short">Short</string>
+  <string name="distance_limit_mid">Mid</string>
+  <string name="distance_limit_long">Long</string>
+  <string name="frontal_face_policy_strict">Strict</string>
+  <string name="frontal_face_policy_moderate">Moderate</string>
+  <string name="frontal_face_policy_none">None</string>
+  <string name="frontal_face_policy_text">Frontal Face Policy</string>
+  <string name="algo_pose">Pose</string>
+  <string name="algo_triangle">Triangle</string>
+  <string name="algo_barcode">Barcode</string>
+  <string name="features_text">Features</string>
+  <string name="features_rectangle">Rectangle</string>
+  <string name="features_landmarks">Landmarks</string>
+</resources>

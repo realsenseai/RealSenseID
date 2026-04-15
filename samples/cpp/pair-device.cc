@@ -1,11 +1,12 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 
 // Example on how to pair the device with the host,
 // Pairing is needed to enable secure communication with the device.
 // NOTE: you must use your own private/public key in production instead of the one in the example.
 #include "RealSenseID/FaceAuthenticator.h"
+#include "RealSenseID/DiscoverDevices.h"
 #include "secure_mode_helper.h"
 #include <iostream>
 
@@ -26,12 +27,17 @@ void pair_device(RealSenseID::FaceAuthenticator& authenticator, RealSenseID::Sam
 
 int main()
 {
+    auto devices = RealSenseID::DiscoverDevices();
+    if (devices.empty())
+    {
+        std::cout << "No device detected" << std::endl;
+        return 1;
+    }
+    auto& device = devices.front();
+    std::cout << "Using device on port " << device.serialPort << std::endl;
+
     RealSenseID::Samples::SignHelper secure_helper;
-    RealSenseID::FaceAuthenticator authenticator {&secure_helper};
-#ifdef _WIN32
-    authenticator.Connect({"COM9"});
-#elif LINUX
-    authenticator.Connect({"/dev/ttyACM0"});
-#endif
+    RealSenseID::FaceAuthenticator authenticator(&secure_helper, device.deviceType);
+    authenticator.Connect({device.serialPort});
     pair_device(authenticator, secure_helper);
 }

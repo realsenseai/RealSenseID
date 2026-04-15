@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "rsid_c/rsid_client.h"
 
@@ -20,7 +20,7 @@ void my_enroll_status_clbk(rsid_enroll_status status, void* ctx)
     }
 }
 
-void my_enroll_hint_clbk(rsid_enroll_status hint, void* ctx)
+void my_enroll_hint_clbk(rsid_enroll_status hint, float frameScore, void* ctx)
 {
     printf("Enroll hint: %d (%s)\n", hint, rsid_enroll_status_str(hint));
 }
@@ -42,11 +42,16 @@ void my_face_detected_clbk(const rsid_face_rect faces[], size_t n_faces, unsigne
 
 int main()
 {
-#ifdef _WIN32
-    rsid_serial_config serial_config = {"COM9"};
-#elif LINUX
-    rsid_serial_config serial_config = {"/dev/ttyACM0"};
-#endif
+    rsid_device_info devices[1];
+    int n_devices = rsid_discover_devices(devices, 1);
+    if (n_devices <= 0)
+    {
+        printf("No device detected\n");
+        exit(1);
+    }
+    printf("Using device on port %s\n", devices[0].serial_port);
+
+    rsid_serial_config serial_config = {devices[0].serial_port};
 
     rsid_authenticator* authenticator = rsid_create_authenticator();
     if (!authenticator)

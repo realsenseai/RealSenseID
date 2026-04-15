@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.Runtime.InteropServices;
@@ -16,8 +16,8 @@ namespace rsid
                 case DeviceType.F45x:
                     _handle = rsid_create_device_controller_F45x();
                     break;
-                case DeviceType.F46x:
-                    _handle = rsid_create_device_controller_F46x();
+                case DeviceType.F50x:
+                    _handle = rsid_create_device_controller_F50x();
                     break;
                 default:
                     throw new ArgumentException("Invalid device type");
@@ -45,7 +45,7 @@ namespace rsid
             if (rsid_query_firmware_version(_handle, output, output.Length) != Status.Ok)
                 return "";
 
-            return Encoding.ASCII.GetString(output).TrimEnd('\0'); ;
+            return Encoding.ASCII.GetString(output).TrimEnd('\0');
         }
 
         public string QuerySerialNumber()
@@ -54,7 +54,7 @@ namespace rsid
             if (rsid_query_serial_number(_handle, output, output.Length) != Status.Ok)
                 return "";
 
-            return Encoding.ASCII.GetString(output).TrimEnd('\0'); ;
+            return Encoding.ASCII.GetString(output).TrimEnd('\0');
         }
 
         public Status Ping()
@@ -129,6 +129,19 @@ namespace rsid
 
         }
 
+        public string QueryBspVer()
+        {
+            var output = new byte[1024];
+            if (rsid_query_bspver(_handle, output, output.Length) != Status.Ok)
+                return "";
+            return Encoding.ASCII.GetString(output).TrimEnd('\0');
+        }
+
+        public Status Reboot()
+        {
+            return rsid_reboot(_handle);
+        }
+
         public void Dispose()
         {
             Dispose(true);
@@ -156,7 +169,7 @@ namespace rsid
         static extern IntPtr rsid_create_device_controller_F45x();
 
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        static extern IntPtr rsid_create_device_controller_F46x();
+        static extern IntPtr rsid_create_device_controller_F50x();
 
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         static extern void rsid_destroy_device_controller(IntPtr rsid_device_controller);
@@ -187,5 +200,11 @@ namespace rsid
 
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         static extern Status rsid_get_color_gains(IntPtr rsid_device_controller, IntPtr red, IntPtr blue);
+
+        [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        static extern Status rsid_reboot(IntPtr rsid_device_controller);
+
+        [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        static extern Status rsid_query_bspver(IntPtr rsid_device_controller, [Out, MarshalAs(UnmanagedType.LPArray)] byte[] output, int len);
     }
 }

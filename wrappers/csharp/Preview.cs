@@ -1,5 +1,5 @@
 ﻿// License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -24,6 +24,7 @@ namespace rsid
         public PreviewMode previewMode;
         public bool portraitMode;
         public bool rotateRaw;
+        public bool skip_decode;
 
         public SerializablePreviewConfig ToSerialized()
         {
@@ -33,7 +34,8 @@ namespace rsid
                 cameraNumber = cameraNumber,
                 PreviewMode = previewMode.ToString(),
                 portraitMode = portraitMode,
-                rotateRaw = rotateRaw
+                rotateRaw = rotateRaw,
+                skip_decode = skip_decode
             };
         }
     }
@@ -49,15 +51,69 @@ namespace rsid
         public string PreviewMode;
         public bool portraitMode;
         public bool rotateRaw;
+        public bool skip_decode;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 0)]
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]    
     public struct FaceRect
     {
         public UInt32 x;
         public UInt32 y;
         public UInt32 width;
         public UInt32 height;
+    };
+
+    public enum BodyPart
+    {
+        Person = 0,
+        Foot = 1,
+        Arm = 2,
+        Leg = 3,
+        Hand = 4,
+        Torso = 5
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
+    public struct FaceLandmarks
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 5)]
+        public UInt32[] landmarksX;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 5)]
+        public UInt32[] landmarksY;
+    };
+
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
+    public struct PersonRect
+    {
+        public UInt32 x;
+        public UInt32 y;
+        public UInt32 width;
+        public UInt32 height;
+        public UInt32 id;
+        public UInt32 distance;
+        public BodyPart bodyPart;
+    };
+
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
+    public struct PersonPose
+    {
+        public UInt32 x;
+        public UInt32 y;
+        public UInt32 width;
+        public UInt32 height;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public UInt32[] landmarksX;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public UInt32[] landmarksY;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public float[] landmarksScore;
+    };
+
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
+    public struct Barcode
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1024)]
+        public string data;
     };
 
     [StructLayout(LayoutKind.Sequential)]

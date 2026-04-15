@@ -6,18 +6,10 @@ find_package(Threads REQUIRED)
 
 target_link_libraries(${LIBRSID_CPP_TARGET} 
     PRIVATE
-        spdlog::spdlog
+        spdlog::spdlog_header_only
         Threads::Threads
         $<$<BOOL:${RSID_SECURE}>:mbedtls>        
 )
-
-if(RSID_NETWORK)
-target_link_libraries(${LIBRSID_CPP_TARGET} 
-    PRIVATE                
-        nlohmann_json::nlohmann_json
-        restclient-cpp
-)
-endif()
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(HEADERS "${SRC_DIR}/StatusHelper.h")
@@ -38,10 +30,10 @@ if(RSID_PREVIEW)
     add_subdirectory("${SRC_DIR}/Preview")
 endif()
 
-if(RSID_NETWORK)	
-	list(APPEND SOURCES "${SRC_DIR}/UpdateChecker.cc")    
-else()
-    list(APPEND SOURCES "${SRC_DIR}/UpdateCheckerNotImpl.cc")
+if(RSID_ONE2ONE)	
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/pipeline.cmake")	
+	setup_rsid_pipeline(${LIBRSID_CPP_TARGET})
+	target_compile_definitions(${LIBRSID_CPP_TARGET} PRIVATE RSID_ONE2ONE)
 endif()
 
 target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${HEADERS} ${SOURCES})
@@ -49,7 +41,6 @@ target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${HEADERS} ${SOURCES})
 target_include_directories(${LIBRSID_CPP_TARGET} 
     PRIVATE 
         "${SRC_DIR}"
-        $<$<BOOL:${RSID_NETWORK}>:$<TARGET_PROPERTY:restclient-cpp,INCLUDE_DIRECTORIES>>        
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -65,7 +56,7 @@ target_compile_definitions(${LIBRSID_CPP_TARGET}
         $<$<BOOL:${RSID_SECURE}>:RSID_SECURE>
 )
 
-set_target_properties(PROPERTIES DEBUG_POSTFIX ${RSID_DEBUG_POSTFIX})
+set_target_properties(${LIBRSID_CPP_TARGET} PROPERTIES DEBUG_POSTFIX ${RSID_DEBUG_POSTFIX})
 set_common_compile_opts(${LIBRSID_CPP_TARGET})
 
 # set ide source group

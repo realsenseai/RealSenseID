@@ -981,9 +981,21 @@ uvc_error_t uvc_claim_if(uvc_device_handle_t *devh, int idx) {
     return ret;
   }
 
+  /* Check if kernel driver is active on a interface.
+   * Returns 0 if no kernel driver is active, 1 if a kernel driver is active or libusb error code
+   */
+  ret = libusb_kernel_driver_active(devh->usb_devh, idx);
+
+  if ((ret != 0) && (ret !=1)) {
+    UVC_DEBUG("failure while determining if kernel driver is active on interface %d (%s)",
+              idx, uvc_strerror(ret));
+    UVC_EXIT(ret);
+    return ret;
+  }
+
   /* Tell libusb to detach any active kernel drivers. libusb will keep track of whether
    * it found a kernel driver for this interface. */
-  ret = libusb_detach_kernel_driver(devh->usb_devh, idx);
+  ret = (ret == 0) ? UVC_SUCCESS : libusb_detach_kernel_driver(devh->usb_devh, idx);
 
   if (ret == UVC_SUCCESS || ret == LIBUSB_ERROR_NOT_FOUND || ret == LIBUSB_ERROR_NOT_SUPPORTED) {
     UVC_DEBUG("claiming interface %d", idx);
@@ -1060,12 +1072,13 @@ uvc_error_t uvc_scan_control(uvc_device_handle_t *devh, uvc_device_info_t *info)
 
   uvc_device_descriptor_t* dev_desc;
   int haveTISCamera = 0;
-  get_device_descriptor ( devh, &dev_desc );
-  if ( 0x199e == dev_desc->idVendor && ( 0x8101 == dev_desc->idProduct ||
-      0x8102 == dev_desc->idProduct )) {
-    haveTISCamera = 1;
+  if ( get_device_descriptor ( devh, &dev_desc ) == UVC_SUCCESS ) {
+    if ( 0x199e == dev_desc->idVendor && ( 0x8101 == dev_desc->idProduct ||
+        0x8102 == dev_desc->idProduct )) {
+      haveTISCamera = 1;
+        }
+    uvc_free_device_descriptor ( dev_desc );
   }
-  uvc_free_device_descriptor ( dev_desc );
 
   for (interface_idx = 0; interface_idx < info->config->bNumInterfaces; ++interface_idx) {
     if_desc = &info->config->interface[interface_idx].altsetting[0];
@@ -1747,6 +1760,29 @@ void uvc_close(uvc_device_handle_t *devh) {
 
   UVC_EXIT_VOID();
 }
+
+/**
+ * @brief Send SET_INTERFACE(alt=0) on all VideoStreaming interfaces.
+ *
+ * [RSID local patch] Resets bulk endpoint state (data toggle, halt, stale frame data).
+ * Call between uvc_stream_open_ctrl() and uvc_stream_start() to flush
+ * stale data left by a previously crashed session. The streaming interface
+ * must already be claimed, otherwise libusb silently ignores the request.
+ *
+ *
+ * @param devh Device handle (must be open)
+ */
+uvc_error_t uvc_reset_streaming(uvc_device_handle_t *devh) {
+  if (!devh || !devh->info)
+    return UVC_ERROR_INVALID_DEVICE;
+
+  uvc_streaming_interface_t *stream_if;
+  DL_FOREACH(devh->info->stream_ifs, stream_if) {
+    libusb_set_interface_alt_setting(devh->usb_devh, stream_if->bInterfaceNumber, 0);
+  }
+  return UVC_SUCCESS;
+}
+
 
 /** @internal
  * @brief Get number of open devices

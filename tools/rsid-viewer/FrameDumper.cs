@@ -14,6 +14,7 @@ namespace rsid_wrapper_csharp
         private static readonly string Raw10Extension = ".w10";
         private static readonly string JpgExtension = ".jpg";
         private static string _fileNamePrefix = "";
+        private static uint _prevTimestamp = 0;
         private static readonly string settingsFileName = "settings.json";
         private readonly string _dumpDir;
         private object _mutex = new object();
@@ -23,7 +24,8 @@ namespace rsid_wrapper_csharp
             // create sub folder for current session.            
             var unixMilliSeconds = ((DateTimeOffset)DateTime.Now).ToUnixTimeMilliseconds();
             var t = title.Replace(' ', '_');
-            _dumpDir = Path.Combine(dumpDir, $"{t}_session_{unixMilliSeconds}");
+            var subFolderName = $"{t}_session_{unixMilliSeconds}" + $"_SN_{deviceState.SerialNumber}";
+            _dumpDir = Path.Combine(dumpDir, subFolderName);
 
             Directory.CreateDirectory(_dumpDir);
             string settingsFilePath = Path.Combine(_dumpDir, settingsFileName);
@@ -36,11 +38,27 @@ namespace rsid_wrapper_csharp
         {
             lock (_mutex)
             {
+                if (image.stride % 4 != 0)
+                {
+                    Logger.Log($"Warning: Skipping dump of image {image.width}x{image.height} (stride {image.stride} not 4-byte aligned)");
+                    return null;
+                }
+
                 using (var bmp = new Bitmap(image.width, image.height, image.stride, PixelFormat.Format24bppRgb, image.buffer))
                 {
                     var bmpSrc = ToBitmapSource(bmp);
                     var filename = GetJpgFilename(image, accesories);
-                    var fullPath = Path.Combine(_dumpDir, filename);
+                    var fileNameWithoutExt = Path.GetFileNameWithoutExtension(filename);
+                    var extension = Path.GetExtension(filename);
+
+                    string fullPath;
+                    int count = 1;
+                    do
+                    {
+                        fullPath = Path.Combine(_dumpDir, $"{fileNameWithoutExt}_face_{count}{extension}");
+                        count++;
+                    } while (File.Exists(fullPath));
+
                     DumpBitmapImage(bmpSrc, fullPath);
                     return fullPath;
                 }
@@ -55,6 +73,15 @@ namespace rsid_wrapper_csharp
                 var byteArray = new Byte[image.size];
                 Marshal.Copy(image.buffer, byteArray, 0, image.size);
                 var filename = GetRaw10Filename(image, accessories);
+                // prevent path traversal
+                if (_dumpDir == null || _dumpDir.Contains("../") || _dumpDir.Contains(@"..\"))
+                {
+                    throw new ArgumentException("Invalid dump dir");
+                }
+                if (filename == null || filename.Contains("../") || filename.Contains(@"..\"))
+                {
+                    throw new ArgumentException("Invalid dump file path");
+                }
                 var fullPath = Path.Combine(_dumpDir, filename);
                 using (var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write))
                 {
@@ -88,20 +115,24 @@ namespace rsid_wrapper_csharp
         }
 
         // return filename e.g. 
-        // AUTH_timestamp_2042434_exp_38119_gain_64_led_on_sensor_left_status_0_sunglasses_covidmask.w10
+        // AUTH_timestamp_2042434_exp_38119_gain_64_led_on_sensor_left_status_0_sunglasses_medicalmask.w10
         private static string GetRaw10Filename(rsid.PreviewImage image, ArrayList accessories)
         {
             var timestampAvailable = image.metadata.timestamp != 0;
-            var prefix = timestampAvailable ? $"timestamp_{image.metadata.timestamp}" : $"frame_{image.number}";
+            var isYuv = image.metadata.timestamp == 1;
+            uint currTimestamp = isYuv ? _prevTimestamp : (uint)image.metadata.timestamp;
+            var prefix = timestampAvailable ? $"timestamp_{currTimestamp}" : $"frame_{image.number}";
             if (timestampAvailable)
             {
+                _prevTimestamp = currTimestamp;
                 uint exposure = image.metadata.exposure;
                 uint gain = image.metadata.gain;
                 var ledStr = (image.metadata.led != 0) ? "led_on" : "led_off";
                 var sensorStr = (image.metadata.sensor_id != 0) ? "right" : "left";
                 uint status = image.metadata.status;
                 var accessoriesStr = AccesoriesToString(accessories);
-                return $"{_fileNamePrefix}_{prefix}_exp_{exposure}_gain_{gain}_{ledStr}_sensor_{sensorStr}_status_{status}{accessoriesStr}{Raw10Extension}";
+                var postfix = isYuv ? "_yuv" : "";
+                return $"{_fileNamePrefix}_{prefix}_exp_{exposure}_gain_{gain}_{ledStr}_sensor_{sensorStr}_status_{status}{accessoriesStr}{postfix}{Raw10Extension}";
             }
             else // metadata isn't valid
             {

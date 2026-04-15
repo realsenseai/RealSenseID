@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 #include "LinuxSerial.h"
 #include "CommonTypes.h"
 #include "SerialPacket.h"
@@ -107,7 +107,7 @@ LinuxSerial::LinuxSerial(const SerialConfig& config) : _config {config}
     throw_on_error(::tcsetattr(_handle, TCSANOW, &options), "tcsetattr", _handle);
 
     // discard any existing data in input/output buffers
-    ::tcflush(_handle, TCIOFLUSH);
+    Clear();
 }
 
 SerialStatus LinuxSerial::SendBytes(const char* buffer, size_t n_bytes)
@@ -177,6 +177,14 @@ SerialStatus LinuxSerial::RecvBytes(char* buffer, size_t n_bytes)
     }
 
     return SerialStatus::RecvTimeout;
+}
+
+void LinuxSerial::Clear()
+{
+    if (::tcflush(_handle, TCIOFLUSH) < 0)
+    {
+        LOG_ERROR(LOG_TAG, "Error clearing serial port buffers. errno=%d (%s)", errno, strerror(errno));
+    }
 }
 } // namespace PacketManager
 } // namespace RealSenseID

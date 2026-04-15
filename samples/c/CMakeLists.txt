@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 3.14)
 project(LibRealSenseID_C_Samples C)
 
 if(NOT RSID_SECURE)

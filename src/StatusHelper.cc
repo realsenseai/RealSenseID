@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "StatusHelper.h"
 #include "RealSenseID/FacePose.h"
@@ -31,6 +31,10 @@ const char* Description(Status status)
         return "DatabaseFull";
     case RealSenseID::Status::DuplicateUserId:
         return "DuplicateUserId";
+    case RealSenseID::Status::DuplicateFaceprints:
+        return "DuplicateFaceprints";
+    case RealSenseID::Status::InvalidSettings:
+        return "InvalidSettings";
     default:
         return "Unknown Status";
     }
@@ -46,6 +50,14 @@ const char* Description(EnrollStatus status)
         return "NoFaceDetected";
     case RealSenseID::EnrollStatus::FaceDetected:
         return "FaceDetected";
+    case RealSenseID::EnrollStatus::PersonNotFound:
+        return "PersonNotFound";
+    case RealSenseID::EnrollStatus::PersonFound:
+        return "PersonFound";
+    case RealSenseID::EnrollStatus::BarcodeNotFound:
+        return "BarcodeNotFound";
+    case RealSenseID::EnrollStatus::BarcodeFound:
+        return "BarcodeFound";
     case RealSenseID::EnrollStatus::LedFlowSuccess:
         return "LedFlowSuccess";
     case RealSenseID::EnrollStatus::FaceIsTooFarToTheTop:
@@ -96,6 +108,8 @@ const char* Description(EnrollStatus status)
         return "DatabaseFull";
     case RealSenseID::EnrollStatus::DuplicateUserId:
         return "DuplicateUserId";
+    case RealSenseID::EnrollStatus::DuplicateFaceprints:
+        return "DuplicateFaceprints";
     case RealSenseID::EnrollStatus::Spoof:
         return "Spoof";
     case RealSenseID::EnrollStatus::Spoof_2D:
@@ -116,12 +130,14 @@ const char* Description(EnrollStatus status)
         return "Spoof_2D_Right";
     case RealSenseID::EnrollStatus::Spoof_Plane_Disparity:
         return "Spoof_Plane_Disparity";
-    case RealSenseID::EnrollStatus::AmbiguiousFace:
+    case RealSenseID::EnrollStatus::AmbiguousFace:
         return "Ambiguous_Face";
     case RealSenseID::EnrollStatus::Sunglasses:
         return "Sunglasses";
-    case RealSenseID::EnrollStatus::CovidMask:
-        return "CovidMask";
+    case RealSenseID::EnrollStatus::MedicalMask:
+        return "MedicalMask";
+    case RealSenseID::EnrollStatus::FaceTooClose:
+        return "FaceTooClose";
     default:
         return "Unknown Status";
     }
@@ -156,6 +172,14 @@ const char* Description(AuthenticateStatus status)
         return "NoFaceDetected";
     case RealSenseID::AuthenticateStatus::FaceDetected:
         return "FaceDetected";
+    case RealSenseID::AuthenticateStatus::PersonNotFound:
+        return "PersonNotFound";
+    case RealSenseID::AuthenticateStatus::PersonFound:
+        return "PersonFound";
+    case RealSenseID::AuthenticateStatus::BarcodeNotFound:
+        return "BarcodeNotFound";
+    case RealSenseID::AuthenticateStatus::BarcodeFound:
+        return "BarcodeFound";
     case RealSenseID::AuthenticateStatus::LedFlowSuccess:
         return "LedFlowSuccess";
     case RealSenseID::AuthenticateStatus::FaceIsTooFarToTheTop:
@@ -180,8 +204,6 @@ const char* Description(AuthenticateStatus status)
         return "CameraStarted";
     case RealSenseID::AuthenticateStatus::CameraStopped:
         return "CameraStopped";
-    case RealSenseID::AuthenticateStatus::MaskDetectedInHighSecurity:
-        return "MaskDetectedInHighSecurity";
     case RealSenseID::AuthenticateStatus::Spoof:
         return "Spoof";
     case RealSenseID::AuthenticateStatus::Forbidden:
@@ -222,12 +244,18 @@ const char* Description(AuthenticateStatus status)
         return "Spoof_2D_Right";
     case RealSenseID::AuthenticateStatus::Spoof_Plane_Disparity:
         return "Spoof_Plane_Disparity";
-    case RealSenseID::AuthenticateStatus::AmbiguiousFace:
+    case RealSenseID::AuthenticateStatus::AmbiguousFace:
         return "Ambiguous_Face";
     case RealSenseID::AuthenticateStatus::Sunglasses:
         return "Sunglasses";
-    case RealSenseID::AuthenticateStatus::CovidMask:
-        return "CovidMask";
+    case RealSenseID::AuthenticateStatus::MedicalMask:
+        return "MedicalMask";
+    case RealSenseID::AuthenticateStatus::FaceTooFar:
+        return "FaceTooFar";
+    case RealSenseID::AuthenticateStatus::CalcDistanceFailure:
+        return "CalcDistanceFailure";
+    case RealSenseID::AuthenticateStatus::FaceTooClose:
+        return "FaceTooClose";
     default:
         return "Unknown Status";
     }
@@ -293,6 +321,19 @@ const char* Description(DeviceConfig::MatcherConfidenceLevel matcher_confidence_
     }
 }
 
+const char* Description(DeviceConfig::FaceSelectionPolicy policy)
+{
+    switch (policy)
+    {
+    case DeviceConfig::FaceSelectionPolicy::Single:
+        return "Single";
+    case DeviceConfig::FaceSelectionPolicy::All:
+        return "All";
+    default:
+        return "Unknown value";
+    }
+}
+
 
 const char* Description(DeviceConfig::DumpMode dump_mode)
 {
@@ -304,6 +345,8 @@ const char* Description(DeviceConfig::DumpMode dump_mode)
         return "CroppedFace";
     case DeviceConfig::DumpMode::FullFrame:
         return "FullFrame";
+    case DeviceConfig::DumpMode::Debug:
+        return "Debug";
     default:
         return "Unknown value";
     }
@@ -319,6 +362,23 @@ const char* Description(DeviceConfig::FrontalFacePolicy policy)
         return "Moderate";
     case DeviceConfig::FrontalFacePolicy::Strict:
         return "Strict";
+    default:
+        return "Unknown value";
+    }
+}
+
+const char* Description(DeviceConfig::DistanceLimit limit)
+{
+    switch (limit)
+    {
+    case DeviceConfig::DistanceLimit::NoLimit:
+        return "NoLimit";
+    case DeviceConfig::DistanceLimit::Short:
+        return "Short";
+    case DeviceConfig::DistanceLimit::Mid:
+        return "Mid";
+    case DeviceConfig::DistanceLimit::Long:
+        return "Long";
     default:
         return "Unknown value";
     }

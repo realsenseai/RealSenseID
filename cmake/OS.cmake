@@ -9,7 +9,6 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
 
 elseif(ANDROID)
     message(STATUS "Android platform")
-    set(CMAKE_CXX_STANDARD 14)
     add_definitions(-DANDROID_STL=c++_shared)
     set(CMAKE_OBJECT_PATH_MAX 2048)
 

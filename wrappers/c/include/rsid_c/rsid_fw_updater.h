@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -58,9 +58,30 @@ extern "C"
     RSID_C_API rsid_status rsid_update_firmware(rsid_fw_updater* handle, const rsid_fw_update_event_handler* event_handler,
                                                 rsid_fw_update_settings settings, const char* bin_path);
 
-    /* check compatibility between the device and the firmware encryption" */
-    RSID_C_API int rsid_is_sku_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path,
-                                          int* expected_sku_ver, int* device_sku_ver);
+    /* Check OTP-encryption SKU compatibility for F45x. Not applicable to F460/F500 (returns 1). */
+    RSID_C_API int rsid_is_otp_sku_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path,
+                                              int* expected_otp_sku, int* device_otp_sku);
+
+    /* Check CSS-signing (secure boot) compatibility for F460/F500. Not applicable to F45x (returns 1). */
+    RSID_C_API int rsid_is_secure_boot_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path,
+                                                  int* expected_secure_boot, int* device_secure_boot);
+
+    /* all per-field compatibility results from rsid_check_compatibility; fields default to -1 (not applicable / not queried) */
+    typedef struct
+    {
+        int expected_otp_sku; /* F45x only: OTP-encryption SKU number (1=SKU1, 2=SKU2); -1 = not applicable */
+        int device_otp_sku;
+        int expected_secure_boot; /* F460/F500 only: CSS-signed firmware flag (0=unsigned, 1=CSS-signed); -1 = not applicable */
+        int device_secure_boot;
+        int expected_db_ver;
+        int device_db_ver;
+        int expected_device_type;
+        int connected_device_type;
+    } rsid_fw_compat_info;
+
+    /* perform all compatibility checks (SKU, DB version, device type) in one device connection */
+    RSID_C_API int rsid_check_compatibility(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path,
+                                            rsid_fw_compat_info* info);
 
 #ifdef __cplusplus
 }

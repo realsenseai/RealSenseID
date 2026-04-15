@@ -2,10 +2,10 @@
 /src/main/assets
 /src/secured/*.i
 /src/secured/cpp_gen
-/src/secured/java/com/intel/realsenseid/api
+/src/secured/java/com/realsenseai/rsid/api
 /src/standard/*.i
 /src/standard/cpp_gen
-/src/standard/java/com/intel/realsenseid/api
+/src/standard/java/com/realsenseai/rsid/api
 .cxx
 .gradle
 .project

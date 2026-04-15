@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+  <style name="SettingsCardStyle" parent="Widget.MaterialComponents.CardView">
+    <item name="android:layout_width">match_parent</item>
+    <item name="android:layout_height">wrap_content</item>
+    <item name="android:layout_margin">1dp</item>
+    <item name="cardBackgroundColor">?attr/colorSurface</item>
+    <item name="cardCornerRadius">5dp</item>
+    <item name="cardElevation">5dp</item>
+    <item name="cardMaxElevation">5dp</item>
+    <item name="cardPreventCornerOverlap">true</item>
+    <item name="cardUseCompatPadding">true</item>
+  </style>
+
+</resources>

@@ -1,7 +1,8 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/FaceAuthenticator.h"
+#include "RealSenseID/DiscoverDevices.h"
 #include <iostream>
 #include <string>
 #include <map>
@@ -14,9 +15,10 @@ static std::map<std::string, RealSenseID::Faceprints> s_user_faceprint_db;
 
 // Create FaceAuthenticator (after successfully connecting it to the device).
 // If failed to connect, exit(1)
-std::unique_ptr<RealSenseID::FaceAuthenticator> CreateAuthenticator(const RealSenseID::SerialConfig& serial_config)
+std::unique_ptr<RealSenseID::FaceAuthenticator> CreateAuthenticator(const RealSenseID::SerialConfig& serial_config,
+                                                                    RealSenseID::DeviceType device_type)
 {
-    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>();
+    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>(device_type);
     auto connect_status = authenticator->Connect(serial_config);
     if (connect_status != RealSenseID::Status::Ok)
     {
@@ -59,10 +61,6 @@ public:
             static_assert(sizeof(s_user_faceprint_db[_user_id].data.enrollmentDescriptor) == sizeof(faceprints->data.featuresVector),
                           "faceprints sizes does not match");
             ::memcpy(s_user_faceprint_db[_user_id].data.enrollmentDescriptor, faceprints->data.featuresVector, copySize);
-
-            // mark the withMask vector as not-set because its not yet set!
-            s_user_faceprint_db[_user_id].data.adaptiveDescriptorWithMask[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] =
-                RealSenseID::FaVectorFlagsEnum::VecFlagNotSet;
         }
     }
 
@@ -71,15 +69,15 @@ public:
         std::cout << "on_progress: pose: " << pose << std::endl;
     }
 
-    void OnHint(const RealSenseID::EnrollStatus hint) override
+    void OnHint(const RealSenseID::EnrollStatus hint, float frameScore) override
     {
         std::cout << "on_hint: hint: " << hint << std::endl;
     }
 };
 
-void enroll_faceprints(const RealSenseID::SerialConfig& serial_config, const char* user_id)
+void enroll_faceprints(const RealSenseID::SerialConfig& serial_config, RealSenseID::DeviceType device_type, const char* user_id)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator(serial_config, device_type);
     EnrollClbk enroll_clbk {user_id};
     auto status = authenticator->ExtractFaceprintsForEnroll(enroll_clbk);
     std::cout << "Status: " << status << std::endl << std::endl;
@@ -110,10 +108,6 @@ public:
         scanned_faceprint.data.featuresType = faceprints->data.featuresType;
         int32_t vecFlags = (int32_t)faceprints->data.featuresVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS];
         int32_t opFlags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithoutMask;
-        if (vecFlags == RealSenseID::FaVectorFlagsEnum::VecFlagValidWithMask)
-        {
-            opFlags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithMask;
-        }
         scanned_faceprint.data.flags = opFlags;
         static_assert(sizeof(scanned_faceprint.data.featuresVector) == sizeof(faceprints->data.featuresVector),
                       "faceprints without mask sizes does not match");
@@ -180,7 +174,7 @@ public:
         }
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
         std::cout << "on_hint: hint: " << hint << std::endl;
     }
@@ -192,12 +186,24 @@ public:
             printf("** Detected face %u,%u %ux%u (timestamp %u)\n", face.x, face.y, face.w, face.h, ts);
         }
     }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        for (auto& lms : landmarks)
+        {
+            printf("** Detected landmarks (timestamp %u)\n", ts);
+            for (size_t l = 0; l < NUM_FACE_LANDMARKS; l++)
+            {
+                printf("    x[%zu]=%d, y[%zu]=%d\n", l, lms.lm_x[l], l, lms.lm_y[l]);
+            }
+        }
+    }
 };
 
 
-void authenticate_faceprints(const RealSenseID::SerialConfig& serial_config)
+void authenticate_faceprints(const RealSenseID::SerialConfig& serial_config, RealSenseID::DeviceType device_type)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator(serial_config, device_type);
     FaceprintsAuthClbk clbk(authenticator.get());
     // extract faceprints of the user in front of the device
     auto status = authenticator->ExtractFaceprintsForAuth(clbk);
@@ -208,11 +214,16 @@ void authenticate_faceprints(const RealSenseID::SerialConfig& serial_config)
 
 int main()
 {
-#ifdef _WIN32
-    RealSenseID::SerialConfig config {"COM9"};
-#elif LINUX
-    RealSenseID::SerialConfig config {"/dev/ttyACM0"};
-#endif
-    enroll_faceprints(config, "my-username");
-    authenticate_faceprints(config);
+    auto devices = RealSenseID::DiscoverDevices();
+    if (devices.empty())
+    {
+        std::cout << "No device detected" << std::endl;
+        return 1;
+    }
+    auto& device = devices.front();
+    std::cout << "Using device on port " << device.serialPort << std::endl;
+
+    RealSenseID::SerialConfig config {device.serialPort};
+    enroll_faceprints(config, device.deviceType, "my-username");
+    authenticate_faceprints(config, device.deviceType);
 }

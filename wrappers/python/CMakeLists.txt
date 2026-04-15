@@ -15,8 +15,8 @@ endif()
 
 FetchContent_Declare(
   pybind11
-   URL https://github.com/pybind/pybind11/archive/refs/tags/v2.11.1.tar.gz
-   URL_HASH SHA256=d475978da0cdc2d43b73f30910786759d593a9d8ee05b1b6846d1eb16c6d2e0c
+   URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.zip
+   URL_HASH SHA256=d0a116e91f64a4a2d8fb7590c34242df92258a61ec644b79127951e821b47be6
 )
 
 FetchContent_MakeAvailable(pybind11)
@@ -32,7 +32,6 @@ set(SOURCES
     "${SRC_PATH}/face_auth_py.cc"    
     "${SRC_PATH}/discover_devices_py.cc"
     "${SRC_PATH}/device_controller_py.cc"
-    "${SRC_PATH}/update_checker_py.cc"
     "${SRC_PATH}/fw_updater_py.cc"
     "${SRC_PATH}/logging_py.cc"
     )
@@ -56,6 +55,12 @@ if (RSID_PREVIEW)
 endif()
 
 set_common_compile_opts(${PY_TARGET})
+
+# Place the .pyd/.so next to the native rsid shared library so Python can find it at runtime
+set_target_properties(${PY_TARGET} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}"
+    LIBRARY_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}"
+)
 
 get_target_property(PROJECT_SOURCES ${PY_TARGET} SOURCES)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${PROJECT_SOURCES})

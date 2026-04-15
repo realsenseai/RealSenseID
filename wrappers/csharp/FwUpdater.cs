@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.IO;
@@ -52,9 +52,9 @@ namespace rsid
             {
                 deviceType = DeviceType.F45x;
             }
-            else if (filename.StartsWith("F46") && ext == ".bin")
+            else if ((filename.StartsWith("F46") || filename.StartsWith("F50")) && ext == ".bin")
             {
-                deviceType = DeviceType.F46x;
+                deviceType = DeviceType.F50x;
             }
             else
             {
@@ -84,9 +84,43 @@ namespace rsid
             return rsid_update_firmware(_handle, ref eventHandler, ref settings, binPath);
         }
 
-        public bool IsSkuCompatible(FwUpdateSettings settings, string bin_path, out int expected_sku_ver, out int device_sku_ver)
+        public bool IsOtpSkuCompatible(FwUpdateSettings settings, string bin_path, out int expected_otp_sku, out int device_otp_sku)
         {
-            return rsid_is_sku_compatible(_handle, settings, bin_path, out expected_sku_ver, out device_sku_ver) != 0;
+            return rsid_is_otp_sku_compatible(_handle, settings, bin_path, out expected_otp_sku, out device_otp_sku) != 0;
+        }
+
+        public bool IsSecureBootCompatible(FwUpdateSettings settings, string bin_path, out int expected_secure_boot,
+                                           out int device_secure_boot)
+        {
+            return rsid_is_secure_boot_compatible(_handle, settings, bin_path, out expected_secure_boot,
+                                                  out device_secure_boot) != 0;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct FwCompatibilityInfo
+        {
+            // F45x only: OTP-encryption SKU number (1=SKU1, 2=SKU2); -1 = not applicable.
+            public int ExpectedOtpSku;
+            public int DeviceOtpSku;
+            // F460/F500 only: CSS-signed firmware flag (0=unsigned, 1=CSS-signed); -1 = not applicable.
+            public int ExpectedSecureBoot;
+            public int DeviceSecureBoot;
+            public int ExpectedDbVer;
+            public int DeviceDbVer;
+            public int ExpectedDeviceType;
+            public int ConnectedDeviceType;
+
+            public bool IsOtpSkuCompatible => ExpectedOtpSku < 0 || DeviceOtpSku < 0 || ExpectedOtpSku == DeviceOtpSku;
+            public bool IsSecureBootCompatible => ExpectedSecureBoot < 0 || DeviceSecureBoot < 0 || ExpectedSecureBoot == DeviceSecureBoot;
+            public bool IsDbCompatible => ExpectedDbVer < 0 || DeviceDbVer < 0 || ExpectedDbVer == DeviceDbVer;
+            public bool IsDeviceTypeCompatible => ConnectedDeviceType < 0 || (ExpectedDeviceType >= 0 && ExpectedDeviceType == ConnectedDeviceType);
+            public bool IsAllCompatible => IsOtpSkuCompatible && IsSecureBootCompatible && IsDbCompatible && IsDeviceTypeCompatible;
+        }
+
+        public bool CheckCompatibility(FwUpdateSettings settings, string bin_path, out FwCompatibilityInfo info)
+        {
+            info = new FwCompatibilityInfo();
+            return rsid_check_compatibility(_handle, settings, bin_path, out info) != 0;
         }
 
 
@@ -119,6 +153,14 @@ namespace rsid
         static extern Status rsid_update_firmware(IntPtr handle, ref EventHandler eventHandler, ref FwUpdateSettings settings, string binPath);
 
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        static extern int rsid_is_sku_compatible(IntPtr rsid_authenticator, FwUpdateSettings settings, string bin_path, out int expected_sku_ver, out int device_sku_ver);
+        static extern int rsid_is_otp_sku_compatible(IntPtr handle, FwUpdateSettings settings, string bin_path,
+                                                     out int expected_otp_sku, out int device_otp_sku);
+
+        [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        static extern int rsid_is_secure_boot_compatible(IntPtr handle, FwUpdateSettings settings, string bin_path,
+                                                         out int expected_secure_boot, out int device_secure_boot);
+
+        [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        static extern int rsid_check_compatibility(IntPtr handle, FwUpdateSettings settings, string bin_path, out FwCompatibilityInfo info);
     }
 }

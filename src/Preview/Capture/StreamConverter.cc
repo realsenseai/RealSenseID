@@ -4,7 +4,9 @@
 #include <cstring>
 #include <algorithm>
 #include <stdexcept>
+#include <cstdint>
 #include "MetadataDefines.h"
+#include <cassert>
 
 namespace RealSenseID
 {
@@ -17,11 +19,11 @@ static constexpr int F450_MJPEG_1080P_HEIGHT = 1056;
 static constexpr int F450_MJPEG_720P_WIDTH = 1280;
 static constexpr int F450_MJPEG_720P_HEIGHT = 704;
 
-// f46x resolutions
-static constexpr int F460_MJPEG_1080P_WIDTH = 1920;
-static constexpr int F460_MJPEG_1080P_HEIGHT = 1080;
-static constexpr int F460_MJPEG_720P_WIDTH = 1280;
-static constexpr int F460_MJPEG_720P_HEIGHT = 720;
+// f50x resolutions
+static constexpr int F500_MJPEG_1080P_WIDTH = 1920;
+static constexpr int F500_MJPEG_1080P_HEIGHT = 1080;
+static constexpr int F500_MJPEG_720P_WIDTH = 1280;
+static constexpr int F500_MJPEG_720P_HEIGHT = 720;
 
 // raw10 resolutions
 static constexpr int RAW10_1080P_WIDTH = 1920;
@@ -45,11 +47,11 @@ static const StreamAttributes GetStreamAttributesByMode(PreviewConfig config)
         width_720 = F450_MJPEG_720P_WIDTH;
         height_720 = F450_MJPEG_720P_HEIGHT;
         break;
-    case DeviceType::F46x:
-        width_1080 = F460_MJPEG_1080P_WIDTH;
-        height_1080 = F460_MJPEG_1080P_HEIGHT;
-        width_720 = F460_MJPEG_720P_WIDTH;
-        height_720 = F460_MJPEG_720P_HEIGHT;
+    case DeviceType::F50x:
+        width_1080 = F500_MJPEG_1080P_WIDTH;
+        height_1080 = F500_MJPEG_1080P_HEIGHT;
+        width_720 = F500_MJPEG_720P_WIDTH;
+        height_720 = F500_MJPEG_720P_HEIGHT;
         break;
     default:
         throw std::invalid_argument("Unknown device type");
@@ -128,6 +130,7 @@ StreamConverter::StreamConverter(PreviewConfig config) : _portrait_mode(config.p
                                                        : (_result_image.width * _result_image.height / 4) * 5;
     _result_image.stride = _result_image.size / _result_image.height;
     _result_image.buffer = new unsigned char[_result_image.size];
+    _skip_decode = config.skip_decode;
 }
 
 StreamConverter::~StreamConverter()
@@ -148,7 +151,23 @@ bool StreamConverter::Buffer2Image(Image* res, const buffer& frame_buffer, const
         try
         {
             res->metadata = ExtractMetadataFromMDBuffer(md_buffer, true /* convert to millis */);
-            return _jpeg_decoder->DecodeJpeg(res, frame_buffer, _result_image.height, _result_image.width);
+            if (!_skip_decode)
+            {
+                return _jpeg_decoder->DecodeJpeg(res, frame_buffer, _result_image.height, _result_image.width);
+            }
+            else
+            {
+                // when not decoding, just copy the jpeg buffer as is
+                // encoded jpeg buffer should be smaller than our allocated raw rgb buffer size
+                assert(frame_buffer.size <= res->size);
+                auto copy_size = static_cast<size_t>(std::min(res->size, frame_buffer.size));
+                ::memcpy(res->buffer, frame_buffer.data, copy_size);
+                res->size = static_cast<unsigned int>(copy_size);
+                res->width = _result_image.width;
+                res->height = _result_image.height;
+                res->stride = 0; // jpeg buffer has no stride
+                return true;
+            }
         }
         catch (const std::exception& ex)
         {

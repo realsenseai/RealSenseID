@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "NonSecureSession.h"
 #include "PacketSender.h"
@@ -11,7 +11,7 @@
 
 static const char* LOG_TAG = "NonSecureSession";
 static constexpr int MAX_SEQ_NUMBER_DELTA = 20;
-constexpr std::chrono::milliseconds start_session_max_timeout {12'000};
+constexpr std::chrono::milliseconds start_session_timeout {4'000};
 
 namespace RealSenseID
 {
@@ -19,14 +19,17 @@ namespace PacketManager
 {
 NonSecureSession::~NonSecureSession()
 {
-    try
+    if (_serial)
     {
-        LOG_DEBUG(LOG_TAG, "Close session");
-        auto ignored = HandleCancelFlag(); // cancel if requested but not handled yet
-        (void)ignored;
-    }
-    catch (...)
-    {
+        try
+        {
+            LOG_DEBUG(LOG_TAG, "Close session");
+            auto ignored = HandleCancelFlag(); // cancel if requested but not handled yet
+            (void)ignored;
+        }
+        catch (...)
+        {
+        }
     }
 }
 
@@ -42,9 +45,10 @@ SerialStatus NonSecureSession::Start(SerialConnection* serial_conn)
         throw std::runtime_error("NonSecureSession: serial connection is null");
     }
     _serial = serial_conn;
+    _serial->Clear(); // clear any leftovers from previous sessions
+
     _last_sent_seq_number = 0;
     _last_recv_seq_number = 0;
-
     DataPacket packet {MsgId::StartSession};
     PacketSender sender {_serial};
     auto status = sender.SendBinary(packet);
@@ -54,7 +58,7 @@ SerialStatus NonSecureSession::Start(SerialConnection* serial_conn)
         return status;
     }
 
-    PacketManager::Timer session_timer {start_session_max_timeout};
+    PacketManager::Timer session_timer {start_session_timeout};
     while (true)
     {
         if (session_timer.ReachedTimeout())
@@ -76,6 +80,7 @@ SerialStatus NonSecureSession::Start(SerialConnection* serial_conn)
         if (msg_id == MsgId::StartSession)
         {
             LOG_DEBUG(LOG_TAG, "Session Started");
+            _is_open = true;
             return SerialStatus::Ok;
         }
 
@@ -91,7 +96,7 @@ SerialStatus NonSecureSession::Start(SerialConnection* serial_conn)
         }
         else
         {
-            LOG_ERROR(LOG_TAG, "Received unexpected msg id '%c' (%d)", msg_id, static_cast<int>(msg_id));
+            LOG_WARNING(LOG_TAG, "Received unexpected msg id '%c' (%d)", msg_id, static_cast<int>(msg_id));
             return SerialStatus::RecvUnexpectedPacket;
         }
     }
@@ -114,12 +119,7 @@ SerialStatus NonSecureSession::RecvPacket(SerialPacket& packet)
 
 SerialStatus NonSecureSession::RecvFaPacket(FaPacket& packet, timeout_t timeout)
 {
-    auto status = RecvPacketImpl(packet, timeout);
-    if (status != SerialStatus::Ok)
-    {
-        return status;
-    }
-    return IsFaPacket(packet) ? SerialStatus::Ok : SerialStatus::RecvUnexpectedPacket;
+    return RecvPacketImpl(packet, timeout);
 }
 
 SerialStatus NonSecureSession::RecvFaPacket(FaPacket& packet)
@@ -129,12 +129,7 @@ SerialStatus NonSecureSession::RecvFaPacket(FaPacket& packet)
 
 SerialStatus NonSecureSession::RecvDataPacket(DataPacket& packet)
 {
-    auto status = RecvPacketImpl(packet, PacketSender::DefaultRecvTimeout);
-    if (status != SerialStatus::Ok)
-    {
-        return status;
-    }
-    return IsDataPacket(packet) ? SerialStatus::Ok : SerialStatus::RecvUnexpectedPacket;
+    return RecvPacketImpl(packet, PacketSender::DefaultRecvTimeout);
 }
 
 SerialStatus NonSecureSession::SendPacketImpl(SerialPacket& packet)
@@ -185,6 +180,23 @@ void NonSecureSession::Cancel()
 {
     LOG_DEBUG(LOG_TAG, "Cancel requested.");
     _cancel_required = true;
+}
+
+
+SerialStatus NonSecureSession::SendCancel()
+{
+    if (!_serial)
+    {
+        LOG_ERROR(LOG_TAG, "Cannot send cancel, no serial connection");
+        return SerialStatus::SendFailed;
+    }
+    LOG_DEBUG(LOG_TAG, "Sending cancel..");
+    return _serial->SendBytes(Commands::face_cancel, ::strlen(Commands::face_cancel));
+}
+
+void NonSecureSession::OnConnectionClosed()
+{
+    _serial = nullptr;
 }
 
 SerialStatus NonSecureSession::HandleCancelFlag()

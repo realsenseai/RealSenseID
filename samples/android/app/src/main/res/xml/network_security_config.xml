@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <!-- More info: https://developer.android.com/privacy-and-security/security-config -->
+
+  <!-- Trust default Android system Certificate Authorities -->
+  <base-config cleartextTrafficPermitted="false">
+    <trust-anchors>
+      <!-- Trust preinstalled CAs (default Android system CAs) -->
+      <certificates src="system" />
+
+      <!-- Uncomment to add custom CA certificate -->
+      <!-- <certificates src="@raw/my_custom_ca" /> -->
+    </trust-anchors>
+  </base-config>
+
+  <!-- Example: Allow cleartext traffic for specific domains during development -->
+  <!-- Remove or comment out in production -->
+  <!--
+  <domain-config cleartextTrafficPermitted="true">
+      <domain includeSubdomains="true">localhost</domain>
+      <domain includeSubdomains="true">10.0.2.2</domain>
+  </domain-config>
+  -->
+</network-security-config>

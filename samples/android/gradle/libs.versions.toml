@@ -1,0 +1,45 @@
+[versions]
+agp = "9.1.0"
+appcompatVersion = "1.7.1"
+materialVersion = "1.13.0"
+recyclerviewVersion = "1.4.0"
+constraintlayoutVersion = "2.2.1"
+lifecycleLivedataKtxVersion = "2.10.0"
+lifecycleViewmodelKtxVersion = "2.10.0"
+navigationFragmentVersion = "2.9.7"
+navigationUiVersion = "2.9.7"
+permissionxVersion = "1.8.1"
+timberVersion = "5.0.1"
+roomVersion = "2.8.4"
+gsonVersion = "2.13.2"
+okhttpVersion = "5.3.2"
+opencvVersion = "4.13.0"
+#androidxCameraVersion = "1.4.2"
+#junitVersion = "4.13.2"
+#extJunitVersion = "1.2.1"
+#espressoCoreVersion = "3.6.1"
+
+[libraries]
+appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompatVersion" }
+appcompatres = { group = "androidx.appcompat", name = "appcompat-resources", version.ref = "appcompatVersion" }
+material = { group = "com.google.android.material", name = "material", version.ref = "materialVersion" }
+recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "recyclerviewVersion" }
+constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
+lifecycle-livedata-ktx = { group = "androidx.lifecycle", name = "lifecycle-livedata-ktx", version.ref = "lifecycleLivedataKtxVersion" }
+lifecycle-viewmodel-ktx = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-ktx", version.ref = "lifecycleViewmodelKtxVersion" }
+navigation-fragment = { group = "androidx.navigation", name = "navigation-fragment", version.ref = "navigationFragmentVersion" }
+navigation-ui = { group = "androidx.navigation", name = "navigation-ui", version.ref = "navigationUiVersion" }
+permissionx = { group = "com.guolindev.permissionx", name = "permissionx", version.ref = "permissionxVersion" }
+timber = { group = "com.jakewharton.timber", name  = "timber", version.ref = "timberVersion" }
+room = { group = "androidx.room", name = "room-runtime", version.ref = "roomVersion" }
+roomCompiler = { group = "androidx.room", name = "room-compiler", version.ref = "roomVersion" }
+gson =  { group = "com.google.code.gson", name = "gson", version.ref = "gsonVersion" }
+okhttp =  { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttpVersion" }
+opencv = { group ="org.opencv", name = "opencv", version.ref = "opencvVersion"}
+#junit = { group = "junit", name = "junit", version.ref = "junitVersion" }
+#ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "extJunitVersion" }
+#espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCoreVersion" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+

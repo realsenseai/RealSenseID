@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "rsid_c/rsid_client.h"
 
@@ -13,7 +13,7 @@
  User defined callbacks are called during the authentication process
  Upon success (RSID_Auth_Success) the user_id param points to the user id.
  *******************************************************************************/
-void my_auth_status_clbk(rsid_auth_status status, const char* user_id, void* ctx)
+void my_auth_status_clbk(rsid_auth_status status, const char* user_id, short score, void* ctx)
 {
     printf("Authentication status: %d (%s)\n", status, rsid_auth_status_str(status));
 
@@ -23,7 +23,7 @@ void my_auth_status_clbk(rsid_auth_status status, const char* user_id, void* ctx
     }
 }
 
-void my_auth_hint_clbk(rsid_auth_status hint, void* ctx)
+void my_auth_hint_clbk(rsid_auth_status hint, float frameScore, void* ctx)
 {
     printf("Authentication hint: %d (%s)\n", hint, rsid_auth_status_str(hint));
 }
@@ -40,11 +40,17 @@ void my_face_detected_calbk(const rsid_face_rect faces[], size_t n_faces, unsign
 
 int main()
 {
-#ifdef _WIN32
-    rsid_serial_config serial_config = {"COM9"};
-#elif LINUX
-    rsid_serial_config serial_config = {"/dev/ttyACM0"};
-#endif
+    rsid_device_info devices[1];
+    int n_devices = rsid_discover_devices(devices, 1);
+    if (n_devices <= 0)
+    {
+        printf("No device detected\n");
+        exit(1);
+    }
+    printf("Using device on port %s\n", devices[0].serial_port);
+
+    rsid_serial_config serial_config = {devices[0].serial_port};
+
     rsid_authenticator* authenticator = rsid_create_authenticator();
     if (!authenticator)
     {

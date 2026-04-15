@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/FwUpdater.h"
 #include "RealSenseID/DeviceController.h"
@@ -54,10 +54,10 @@ public:
     }
 };
 
-class SKUMismatchException : public std::runtime_error
+class SecurityMismatchException : public std::runtime_error
 {
 public:
-    explicit SKUMismatchException(const std::string& message) : runtime_error(message)
+    explicit SecurityMismatchException(const std::string& message) : runtime_error(message)
     {
     }
 };
@@ -133,19 +133,36 @@ public:
         return {_device_info->metadata};
     }
 
-    std::tuple<bool, std::string> IsSkuCompatible()
+    std::tuple<bool, std::string> IsSecurityCompatible()
     {
+        QueryDeviceInfo(true);
         RealSenseID::FwUpdater::Settings settings;
         settings.serial_config = RealSenseID::SerialConfig({_port.c_str()});
-        std::stringstream message;
-        int expectedSkuVer = 0, deviceSkuVer = 0;
-        if (!_updater->IsSkuCompatible(settings, _file_path.c_str(), expectedSkuVer, deviceSkuVer))
+        RealSenseID::FwUpdater::FwCompatibilityInfo info;
+        _updater->CheckCompatibility(settings, _file_path.c_str(), info);
+
+        // Check OTP SKU (F45x only; skipped when not applicable).
+        if (!info.IsOtpSkuCompatible())
         {
-            message << "SKU/Firmware mismatch. Device does not support the encryption applied on the firmware. "
-                    << "Replace firmware binary to SKU" << deviceSkuVer;
+            if (info.deviceOtpSku < 0)
+                return std::make_tuple(false, "Failed to determine OTP encryption SKU. Check device connection and try again.");
+            std::stringstream message;
+            message << "Firmware mismatch. Device does not support the OTP encryption variant of this firmware. "
+                    << "Replace firmware binary to SKU" << info.deviceOtpSku;
             return std::make_tuple(false, message.str());
         }
-        return std::make_tuple(true, "Firmware file matches device SKU.");
+
+        // Check secure boot (F460/F500 only; skipped when not applicable).
+        if (!info.IsSecureBootCompatible())
+        {
+            if (info.deviceSecureBoot < 0)
+                return std::make_tuple(false, "Failed to determine secure boot compatibility. Check device connection and try again.");
+            std::stringstream message;
+            message << "Firmware mismatch. Replace firmware binary to " << (info.deviceSecureBoot ? "SIGNED" : "NON SIGNED");
+            return std::make_tuple(false, message.str());
+        }
+
+        return std::make_tuple(true, "Firmware file security matches device.");
     };
 
     std::tuple<bool, std::string> IsHostCompatible(RealSenseID::DeviceType deviceType)
@@ -175,10 +192,10 @@ public:
         QueryDeviceInfo(true);
 
         // Check for SKU match
-        auto sku_compat = IsSkuCompatible();
-        if (!std::get<0>(sku_compat))
+        auto security_compat = IsSecurityCompatible();
+        if (!std::get<0>(security_compat))
         {
-            throw SKUMismatchException(std::get<1>(sku_compat));
+            throw SecurityMismatchException(std::get<1>(security_compat));
         }
 
         // Check for host compatibility
@@ -267,6 +284,10 @@ private:
         DeviceMetadata metadata;
         std::string fw_version;
         RealSenseID::DeviceType device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
+        if (device_type == RealSenseID::DeviceType::Unknown)
+        {
+            throw std::runtime_error("Failed to detect device type on the specified port");
+        }
         RealSenseID::DeviceController device_controller(device_type);
         device_controller.Connect(serial_config);
         device_controller.QueryFirmwareVersion(fw_version);
@@ -317,7 +338,7 @@ void init_fw_updater(pybind11::module& m)
 {
     using namespace RealSenseID;
     py::register_exception<InvalidFirmwareException>(m, "InvalidFirmwareException", PyExc_RuntimeError);
-    py::register_exception<SKUMismatchException>(m, "SKUMismatchException", PyExc_RuntimeError);
+    py::register_exception<SecurityMismatchException>(m, "SecurityMismatchException", PyExc_RuntimeError);
     py::register_exception<IncompatibleHostException>(m, "IncompatibleHostException", PyExc_RuntimeError);
     py::register_exception<FWUpdateException>(m, "FWUpdateException", PyExc_RuntimeError);
 
@@ -373,7 +394,7 @@ void init_fw_updater(pybind11::module& m)
         // (bool, message) = function()
         // if bool = true: message will be None
         // if bool = false: message will have meaningful output to display
-        .def("is_sku_compatible", &FWUpdaterPy::IsSkuCompatible,
+        .def("is_security_compatible", &FWUpdaterPy::IsSecurityCompatible,
              R"docstring(
              Verify if firmware file is compatible with connected device.
              Returns
@@ -458,7 +479,7 @@ void init_fw_updater(pybind11::module& m)
              ------
              InvalidFirmwareException
                  Firmware file is corrupt or invalid
-            SKUMismatchException
+            SecurityMismatchException
                  Firmware file is incompatible with this device
              IncompatibleHostException
                  Firmware update needs to be forced as the host is incompatible

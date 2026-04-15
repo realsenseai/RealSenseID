@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 3.14)
 
 include(CSharpUtilities)
 
@@ -20,7 +20,7 @@ if(NOT RSID_SECURE)
     set_property(SOURCE App.xaml PROPERTY VS_XAML_TYPE "ApplicationDefinition")
 
     # cs project flags
-    set_property(TARGET ${EXE_NAME} PROPERTY VS_DOTNET_TARGET_FRAMEWORK_VERSION "v4.7.2")
+    set_property(TARGET ${EXE_NAME} PROPERTY VS_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
 
     # references
     set_property(

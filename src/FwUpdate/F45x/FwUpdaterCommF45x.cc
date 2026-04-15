@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "FwUpdaterCommF45x.h"
 #include "Logger.h"
@@ -10,6 +10,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <fstream>
+#include <algorithm>
 
 #ifdef _WIN32
 #include "PacketManager/WindowsSerial.h"
@@ -151,12 +152,20 @@ void FwUpdaterCommF45x::WriteBinary(const char* buf, size_t n_bytes)
     }
 }
 
+// Remove newlines from string for debug print
+static std::string StripNewlines(const std::string& str)
+{
+    std::string result = str;
+    result.erase(std::remove_if(result.begin(), result.end(), [](char c) { return c == '\r' || c == '\n'; }), result.end());
+    return result;
+}
+
 // 1. Wait until input drained
 // 2. Send the command
 // 3. Wait for cmd "ack" upto 1 second, if wait_response is true
 void FwUpdaterCommF45x::WriteCmd(const std::string& cmd, bool wait_response)
 {
-    LOG_DEBUG(LOG_TAG, "WriteCmd \"%s\"", cmd.c_str());
+    LOG_DEBUG(LOG_TAG, "WriteCmd \"%s\"", StripNewlines(cmd).c_str());
     WaitForIdle();
     auto serial_status = _serial->SendBytes(cmd.c_str(), cmd.length());
     if (serial_status != PacketManager::SerialStatus::Ok)

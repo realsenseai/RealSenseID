@@ -5,199 +5,521 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:rsid_wrapper_csharp"
         mc:Ignorable="d"
-        Title="Settings" SizeToContent="Height"
-        Width="521.129"
-        ResizeMode="NoResize"        
+        Title="Settings" Height="730"
+        Width="590"
+        ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStyle="None"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource AppBGBrush}"
         MouseDown="Window_MouseDown" BorderBrush="{DynamicResource SecondaryColorBrush}" BorderThickness="1" UseLayoutRounding="True">
 
-    <StackPanel Grid.Row="3" Grid.ColumnSpan="4" Margin="0">
-        <TextBlock x:Name="Title1" HorizontalAlignment="Left" TextWrapping="Wrap" FontSize="16" FontWeight="Medium" Text="Settings" Foreground="{DynamicResource PrimaryText}" VerticalAlignment="Center" d:LayoutOverrides="LeftPosition, RightPosition" Margin="24,24,0,32"/>
-        <StackPanel x:Name="Device" Margin="24,0">
-            <!-- host mode -->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="ServerModeLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="DB Management" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="ServerModeNo" Content="On Device" VerticalAlignment="Center" Grid.Column="1" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="ServerModeYes" Content="On Host" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="2" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-            </Grid>
-            <!-- preview format -->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="previewModeLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Preview Format" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="PreviewModeMJPEG_1080P" Content="1080p" VerticalAlignment="Center" d:LayoutOverrides="Width" 
-                 Grid.Column="1" Foreground="{DynamicResource PrimaryText}" 
-                 IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="MJPEG 1080P"/>
+    <Window.Resources>
+        <local:ModeToVisibilityConverter x:Key="ModeToVisibilityConverter" />
+    </Window.Resources>
 
-                <RadioButton x:Name="PreviewModeMJPEG_720P" Content="720p" VerticalAlignment="Center" 
-                 Grid.Column="2" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"
-                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="MJPEG 720P"/>
+    <Grid Grid.IsSharedSizeScope="True">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0">
+                <TextBlock x:Name="Title1" HorizontalAlignment="Left" TextWrapping="Wrap" FontSize="16" FontWeight="Medium" Text="Settings" Foreground="{DynamicResource PrimaryText}" VerticalAlignment="Center" d:LayoutOverrides="LeftPosition, RightPosition" Margin="24,24,0,32"/>
+                
+                <!-- Mode Selector -->
+                <Grid x:Name="ModeGrid" VerticalAlignment="Top" Margin="24,0,24,16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Mode" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                    <ComboBox x:Name="ModeSelector" Grid.Column="1" SelectionChanged="ModeSelector_SelectionChanged" Style="{DynamicResource ComboBoxStyle1}" FontSize="14" Foreground="{DynamicResource PrimaryText}">
+                        <ComboBoxItem Content="Face" Tag="FA"/>
+                        <ComboBoxItem Content="Person" Tag="Person"/>
+                        <ComboBoxItem Content="Other" Tag="Other"/>
+                    </ComboBox>
+                </Grid>
+                
+                <!-- Basic Settings Section -->
+                <Expander x:Name="BasicExpander" Header="Basic" IsExpanded="{Binding IsBasicExpanded, Mode=TwoWay}" Margin="24,0,24,8" Foreground="{DynamicResource PrimaryText}" FontSize="14" FontWeight="SemiBold">
+                    <StackPanel x:Name="BasicSettingsPanel" Margin="10,10,0,0" TextElement.FontWeight="Normal">
+                        <!-- Unified Operation Settings -->
+                        <StackPanel x:Name="OperationSettings">
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Operation" FontWeight="Bold" Grid.Column="0" Margin="0,0,16,0" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="Operation_All" Content="Auth" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run all face authentication flows"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationFace}"/>
 
-            </Grid>
-            <!-- dump mode-->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="DumpingLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Frame Dumps" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="DumpModeNone" Content="Off" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="1" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="DumpModeFace" Content="Face Crop" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="2" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="DumpModeFull" Content="Full Frame" VerticalAlignment="Center" Grid.Column="3" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"  Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-            </Grid>
+                                    <RadioButton x:Name="Operation_DetectionOnly" Content="Face" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run only face detection flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationFace}"/>
+
+                                    <RadioButton x:Name="Operation_SpoofOnly" Content="Spoof" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run only anti-spoofing flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationFace}"/>
+
+                                    <RadioButton x:Name="Operation_RecognitionOnly" Content="Recog" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run only face recognition flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationFace}"/>
+
+                                    <RadioButton x:Name="Operation_PersonOnly" Content="Person" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run person detection flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationPerson}"/>
+
+                                    <RadioButton x:Name="Operation_PoseOnly" Content="Pose" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run person pose estimation flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationPerson}"/>
+
+                                    <RadioButton x:Name="Operation_BodyPartOnly" Content="Tailgate" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run human body part detection flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationPerson}"/>
+
+                                    <RadioButton x:Name="Operation_BarcodeOnly" Content="Barcode" GroupName="OperationMode" VerticalAlignment="Center" Click="RadioButton_Click"
+                                                 Foreground="{DynamicResource PrimaryText}" Margin="0,0,16,0"
+                                                 Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Run barcode decoding flow"
+                                                 Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=OperationOther}"/>
+                                </WrapPanel>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Matcher confidence level (Anti Spoofing) -->
+                        <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=AntiSpoofing}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="Confidence" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Anti Spoofing" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="ConfidenceHigh" Click="CheckCanApply" Content="High" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="ConfidenceEnhanced" Click="CheckCanApply" Content="Enhanced" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="ConfidenceStandard" Click="CheckCanApply" Content="Standard" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}"  Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                            </WrapPanel>
+                        </Grid>
+
+                        <!-- dump mode (Frame Dumps) -->
+                        <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FrameDumpsGroup}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DumpingLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Frame Dumps" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="DumpModeNone" Click="CheckCanApply" Content="Off" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="DumpModeFace" Click="CheckCanApply" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FrameDumpsFaceCropped}" Content="Crop" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="DumpModeFull" Click="CheckCanApply" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FrameDumpsFull}" Content="Full" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="DumpModeDebug" Click="CheckCanApply" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FrameDumpsDebug}" Content="Debug" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                            </WrapPanel>
+                        </Grid>
+
+                        <!-- camera rotation -->
+                        <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=CameraRotation}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="CameraRotationLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Camera Rotation" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="CameraRotation0" Content="0°" Click="CameraRotation_Click" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="CameraRotation90" Content="90°" Click="CameraRotation_Click" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="CameraRotation180" Content="180°" Click="CameraRotation_Click" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="CameraRotation270" Content="270°" Click="CameraRotation_Click" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                            </WrapPanel>
+                        </Grid>
+
+                        <!-- Face selection policy -->
+                        <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FaceSelectionSingle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="FaceSelectionPolicyLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Face Selection" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="FaceSelectionPolicySingle" Click="CheckCanApply" Content="Single" VerticalAlignment="Center" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="FaceSelectionPolicyAll" Click="CheckCanApply" Content="Multi" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                            </WrapPanel>
+                        </Grid>
+
+                        <!-- person motion mode -->
+                        <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=MotionMode}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PersonMotionModeStatic" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Person Motion Mode" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <RadioButton x:Name="StaticMode" Content="Static" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Click="PersonMotionMode_Click" Margin="0,0,16,0"/>
+                                <RadioButton x:Name="WalkthroughMode" Content="Walkthrough" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Click="PersonMotionMode_Click" Margin="0,0,16,0"/>
+                            </WrapPanel>
+                        </Grid>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Advanced Settings Section -->
+                <!-- Defaulting to collapsed as requested to hide less frequently used options -->
+                <Expander x:Name="AdvancedExpander" Header="Advanced" IsExpanded="{Binding IsAdvancedExpanded, Mode=TwoWay}" Margin="24,0,24,8" Foreground="{DynamicResource PrimaryText}" FontSize="14" FontWeight="SemiBold">
+                    <StackPanel x:Name="AdvancedSettingsPanel" Margin="10,10,0,0" TextElement.FontWeight="Normal">
+                        <StackPanel x:Name="Device">
+                            <!-- host mode -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=DBManagement}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ServerModeLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="DB Management" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="ServerModeNo" Content="On Device" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="ServerModeYes" Content="On Host" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- preview format -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=Preview}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="previewModeLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Preview Format" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="PreviewModeMJPEG_1080P" Content="1080p" VerticalAlignment="Center"
+                                     Foreground="{DynamicResource PrimaryText}"
+                                     IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="MJPEG 1080P" Margin="0,0,16,0"/>
+
+                                    <RadioButton x:Name="PreviewModeMJPEG_720P" Content="720p" VerticalAlignment="Center"
+                                     Foreground="{DynamicResource PrimaryText}"
+                                     Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="MJPEG 720P" Margin="0,0,16,0"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- distance limit -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding DistanceSettingsVisibility}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="DistanceLimitLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Distance Limit" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="NoDistanceLimit" Click="CheckCanApply" Content="No Limit" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="DistanceLimit70cm" Click="CheckCanApply" Content="70cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="DistanceLimit100cm" Click="CheckCanApply" Content="100cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="DistanceLimit130cm" Click="CheckCanApply" Content="130cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- Frontal face policy -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FrontalFacePolicy}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="FrontalPolicy" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Frontal Face Policy" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <RadioButton x:Name="FrontalStrict" Click="CheckCanApply" Content="Strict" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="FrontalModerate" Click="CheckCanApply" Content="Moderate" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                    <RadioButton x:Name="FrontalNone" Click="CheckCanApply" Content="None" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- features-->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FeaturesGroup}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="FeaturesLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Features" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="Feature_Rectangle" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FeaturesRect}" Content="Rectangle" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource CheckBoxStyle1}" FontSize="14" ToolTip="Get rectangle arround face/person" Margin="0,0,16,0"/>
+                                    <CheckBox x:Name="Feature_Landmarks" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=FeaturesLM}" Content="Landmarks" AutomationProperties.AutomationId="LandmarksCheckbox" Click="LandmarksCheckbox_Click" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource CheckBoxStyle1}" FontSize="14" ToolTip="Get face/person landmarks" Margin="0,0,16,0"/>
+                                    <CheckBox x:Name="Feature_Distance" Visibility="{Binding DistanceSettingsVisibility}" Content="Distance" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource CheckBoxStyle1}" FontSize="14" ToolTip="Get distance" Margin="0,0,16,0"/>
+                                </WrapPanel>
+                            </Grid>
+
+                            <!-- max spoof attempts -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=MaxSpoofs}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="Max Spoofs" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <TextBox x:Name="MaxSpoofs" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" />
+                                    <TextBlock Margin="10,0,0,0" Text="max consecutive spoofs (0=nolimit)" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- matching threshold -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=MatchingThreshold}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="Matching Threshold" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <TextBox x:Name="MatchThresh" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" />
+                                    <TextBlock Margin="10,0,0,0" Text="0=use recommended" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                </StackPanel>
+                            </Grid>
 
 
-            <!-- Matcher confidence level -->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="Confidence" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Anti Spoofing" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="ConfidenceHigh" Content="High" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="1" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="ConfidenceEnhanced" Content="Enhanced" VerticalAlignment="Center" Grid.Column="2" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="ConfidenceStandard" Content="Standard" VerticalAlignment="Center" Grid.Column="3" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"  Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-            </Grid>
+                            <!-- sensor exposure and gain settings -->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=SensorSettings}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="Sensor Settings" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0" />
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Margin="0,0,5,0" Text="Exposure:" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                    <TextBox x:Name="SensorExpTime" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Margin="0,0,10,0"/> 
+                                    <TextBlock Margin="0,0,5,0" Text="    Gain:" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                    <TextBox x:Name="SensorGain" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" />
+                                </WrapPanel>
+                            </Grid>
+                            
+                            <!-- GPIO toggle on successful authentication-->
+                            <Grid VerticalAlignment="Top" Margin="0,0,0,24" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=GpioToggleAuth}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="GPIO Toggling" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0" />
+                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <CheckBox x:Name="AuthGpioChk" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBlock Margin="0,0,0,0" Text="authentication success toggles GPIO pin 1" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                </WrapPanel>
+                            </Grid>
 
-            <!-- Frontal face policy -->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="FrontalPolicy" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Frontal Face Policy" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="FrontalStrict" Content="Strict" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="1" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="FrontalModerate" Content="Moderate" VerticalAlignment="Center" Grid.Column="2" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="FrontalNone" Content="None" VerticalAlignment="Center" Grid.Column="3" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-            </Grid>
+                            <!-- Face Detection ROI -->
+                            <StackPanel x:Name="RoiSection" Visibility="{Binding Mode, Converter={StaticResource ModeToVisibilityConverter}, ConverterParameter=ROI}" Margin="0,0,0,24">
+                                <!-- Num ROIs selector -->
+                                <Grid VerticalAlignment="Top" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Detection ROIs" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <ComboBox x:Name="NumRoisCombo" Width="60" FontSize="14" SelectionChanged="NumRoisCombo_SelectionChanged" Style="{DynamicResource ComboBoxStyle1}" Foreground="{DynamicResource PrimaryText}">
+                                            <ComboBoxItem Content="1"/>
+                                            <ComboBoxItem Content="2"/>
+                                            <ComboBoxItem Content="3"/>
+                                            <ComboBoxItem Content="4"/>
+                                            <ComboBoxItem Content="5"/>
+                                        </ComboBox>
+                                        <TextBlock Margin="10,0,0,0" Text="active ROI(s)" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12"/>
+                                    </StackPanel>
+                                </Grid>
+                                <!-- ROI 1 (index 0) - always visible -->
+                                <Grid x:Name="RoiPanel0" VerticalAlignment="Top" Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" Text="ROI 1" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="13" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="X" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="RoiX" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Y" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="RoiY" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Width" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="RoiWidth" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1080"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Height" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="RoiHeight" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1920"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="5" x:Name="ResetRoiButton" Content="Reset" Width="70" Height="24" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Style="{DynamicResource ButtonStyle1}"
+                                        Click="ResetRoiButton_Click"/>
+                                </Grid>
+                                <!-- ROI 2 (index 1) -->
+                                <Grid x:Name="RoiPanel1" VerticalAlignment="Top" Margin="0,0,0,4" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" Text="ROI 2" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="13" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="X" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi1X" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Y" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi1Y" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Width" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi1Width" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1080"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Height" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi1Height" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1920"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="5" x:Name="ResetRoi1Button" Content="Reset" Width="70" Height="24" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Style="{DynamicResource ButtonStyle1}"
+                                        Click="ResetRoi1Button_Click"/>
+                                </Grid>
+                                <!-- ROI 3 (index 2) -->
+                                <Grid x:Name="RoiPanel2" VerticalAlignment="Top" Margin="0,0,0,4" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" Text="ROI 3" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="13" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="X" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi2X" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Y" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi2Y" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Width" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi2Width" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1080"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Height" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi2Height" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1920"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="5" x:Name="ResetRoi2Button" Content="Reset" Width="70" Height="24" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Style="{DynamicResource ButtonStyle1}"
+                                        Click="ResetRoi2Button_Click"/>
+                                </Grid>
+                                <!-- ROI 4 (index 3) -->
+                                <Grid x:Name="RoiPanel3" VerticalAlignment="Top" Margin="0,0,0,4" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" Text="ROI 4" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="13" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="X" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi3X" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Y" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi3Y" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Width" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi3Width" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1080"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Height" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi3Height" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1920"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="5" x:Name="ResetRoi3Button" Content="Reset" Width="70" Height="24" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Style="{DynamicResource ButtonStyle1}"
+                                        Click="ResetRoi3Button_Click"/>
+                                </Grid>
+                                <!-- ROI 5 (index 4) -->
+                                <Grid x:Name="RoiPanel4" VerticalAlignment="Top" Margin="0,0,0,4" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" Text="ROI 5" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="13" Margin="0,0,16,0"/>
+                                    <StackPanel Grid.Column="1" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="X" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi4X" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Y" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi4Y" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="0"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Width" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi4Width" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1080"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4" Orientation="Vertical" HorizontalAlignment="Center">
+                                        <TextBlock Text="Height" FontSize="12" Foreground="{DynamicResource PrimaryText}" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="Roi4Height" FontSize="14" Width="50" TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" Text="1920"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="5" x:Name="ResetRoi4Button" Content="Reset" Width="70" Height="24" Margin="8,0,0,0"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Style="{DynamicResource ButtonStyle1}"
+                                        Click="ResetRoi4Button_Click"/>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
 
+                <!-- FW Update section restored after undo changes -->
+                <Expander x:Name="FwUpdateExpander" Header="FW Update" IsExpanded="{Binding IsFwUpdateExpanded, Mode=TwoWay}" Margin="24,0,24,0" Foreground="{DynamicResource PrimaryText}" FontSize="14" FontWeight="SemiBold">
+                    <Border x:Name="Firmware" VerticalAlignment="Top" Padding="24,16" BorderThickness="0,1,0,0" TextElement.FontWeight="Normal">
+                        <Border.BorderBrush>
+                            <SolidColorBrush Color="{DynamicResource Gray300}"/>
+                        </Border.BorderBrush>
+                        <Grid x:Name="FirmwareGrid">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="81*"/>
+                                <ColumnDefinition Width="269"/>
+                                <ColumnDefinition Width="122*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DialogTitle" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Firmware update" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Grid.ColumnSpan="2"/>
+                            <TextBlock x:Name="FirmwareVersionTitle" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Current version" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource SecondaryText}" Grid.Row="1"/>
+                            <TextBlock x:Name="FirmwareVersionNumber" HorizontalAlignment="Left" TextWrapping="Wrap" Text="" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryText}" Grid.Column="1" Grid.Row="1" d:LayoutOverrides="HorizontalAlignment" Margin="8,0,0,0"/>
 
-            <!-- Algo Flow mode-->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="4*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="AlgoFlowLabel" Grid.Column="0" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Operation Mode" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
+                            <Button x:Name="UpdateFirmwareButton" AutomationProperties.AutomationId="UpdateFirmwareButton" Click="UpdateFirmwareButton_Click" Content="BROWSE" HorizontalAlignment="Center" d:LayoutOverrides="Height" Grid.Column="1" Style="{DynamicResource ButtonStyle1}" VerticalAlignment="Center" Margin="103,0,80,0"/>
+                            <WrapPanel Grid.Column="2" Grid.Row="0"   HorizontalAlignment="Left"  VerticalAlignment="Center">
+                                <CheckBox x:Name="ForceUpdateChk" VerticalAlignment="Center"/>
+                                <Label Content="Force update" VerticalAlignment="Center"/>
+                            </WrapPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Margin="106,2,0,0">
+                                <TextBlock x:Name="CheckForUpdatesLink" Visibility="Collapsed">
+                                    <Hyperlink Click="CheckForUpdates_Click" FontSize="11">Check For Updates</Hyperlink>
+                                </TextBlock>
+                                <ProgressBar x:Name="CheckUpdatesBar" Foreground="{DynamicResource ProgressBrush }" IsIndeterminate="True" Visibility="Collapsed" Width="90" Height="11" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Expander>
 
-                <RadioButton x:Name="AlgoFlow_All" Content="All" VerticalAlignment="Center" 
-                             Grid.Column="1" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"
-                             Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="All"/>
-
-
-                <RadioButton x:Name="AlgoFlow_DetectionOnly" Content="Detect" VerticalAlignment="Center" 
-                             Grid.Column="2" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"
-                             Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Face Detection Only"/>
-
-                <RadioButton x:Name="AlgoFlow_SpoofOnly" Content="Spoof" VerticalAlignment="Center" 
-                             Grid.Column="3" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"
-                             Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Spoof Only"/>
-
-                <RadioButton x:Name="AlgoFlow_RecognitionOnly" Content="Recog" VerticalAlignment="Center" 
-                             Grid.Column="4" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width"
-                             Style="{DynamicResource RadioButtonStyle1}" FontSize="14" ToolTip="Face Recognition Only"/>
-            </Grid>
-
-            <!-- camera rotation-->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="4*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <ColumnDefinition Width="2*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="CameraRotationLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Camera Rotation" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14"/>
-                <RadioButton x:Name="CameraRotation0" Content="0°" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="1" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="CameraRotation90" Content="90°" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="2" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="CameraRotation180" Content="180°" VerticalAlignment="Center" Grid.Column="3" Foreground="{DynamicResource PrimaryText}" d:LayoutOverrides="Width" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-                <RadioButton x:Name="CameraRotation270" Content="270°" VerticalAlignment="Center" d:LayoutOverrides="Width" Grid.Column="4" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14"/>
-            </Grid>
-
-            <!-- max spoof attempts -->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <!--<ColumnDefinition Width="4*"/>-->
-
-                </Grid.ColumnDefinitions>
-                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="Max Spoofs" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <TextBox x:Name="MaxSpoofs" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1"  PreviewTextInput="ValidateMaxSpoofs" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" />
-                    <TextBlock Margin="10,0,0,0" Text="max consecutive spoofs. 0=nolimit" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
-                </StackPanel>
-
-            </Grid>
-            <!-- GPIO toggle on successfull authentication-->
-            <Grid VerticalAlignment="Top" Margin="0,0,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="2*"/>
-                    <!--<ColumnDefinition Width="4*"/>-->
-
-                </Grid.ColumnDefinitions>
-                <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="GPIO Toggling" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <CheckBox x:Name="AuthGpioChk" VerticalAlignment="Center"/>
-                    <TextBlock Margin="10,0,0,0" Text="authentication success toggles GPIO pin 1" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
-                </StackPanel>
-
-            </Grid>
-        </StackPanel>
-        <Border x:Name="Firmware" VerticalAlignment="Top" Padding="24,16" BorderThickness="0,1,0,0">
-            <Border.BorderBrush>
-                <SolidColorBrush Color="{DynamicResource Gray300}"/>
-            </Border.BorderBrush>
-            <Grid x:Name="FirmwareGrid">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="81*"/>
-                    <ColumnDefinition Width="269"/>
-                    <ColumnDefinition Width="122*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="DialogTitle" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Firmware update" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14" Grid.ColumnSpan="2"/>
-                <TextBlock x:Name="FirmwareVersionTitle" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Current version" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryText}" Grid.Row="1"/>
-                <TextBlock x:Name="FirmwareVersionNumber" HorizontalAlignment="Left" TextWrapping="Wrap" Text="" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryText}" Grid.Column="1" Grid.Row="1" d:LayoutOverrides="HorizontalAlignment" Margin="8,0,0,0"/>
-
-                <Button x:Name="UpdateFirmwareButton" AutomationProperties.AutomationId="UpdateFirmwareButton" Click="UpdateFirmwareButton_Click" Content="BROWSE" HorizontalAlignment="Center" d:LayoutOverrides="Height" Grid.Column="1" Style="{DynamicResource ButtonStyle1}" VerticalAlignment="Center" Margin="103,0,80,0"/>
-                <WrapPanel Grid.Column="2" Grid.Row="0"   HorizontalAlignment="Left"  VerticalAlignment="Center">
-                    <CheckBox x:Name="ForceUpdateChk" VerticalAlignment="Center"/>
-                    <Label Content="Force update" VerticalAlignment="Center"/>
-                </WrapPanel>
-                <StackPanel Grid.Row="1" Grid.Column="1" Margin="106,2,0,0">
-                    <TextBlock x:Name="CheckForUpdatesLink" Visibility="Visible">
-                        <Hyperlink Click="CheckForUpdates_Click" FontSize="11">Check For Updates</Hyperlink>
-                    </TextBlock>
-                    <ProgressBar x:Name="CheckUpdatesBar" Foreground="{DynamicResource ProgressBrush }" IsIndeterminate="True" Visibility="Collapsed" Width="90" Height="11" HorizontalAlignment="Left"/>
-                </StackPanel>
-
-            </Grid>
-        </Border>
-        <Border x:Name="Buttons" d:LayoutOverrides="TopPosition, BottomPosition" BorderThickness="0,1,0,0" Padding="24,16">
+            </StackPanel>
+        </ScrollViewer>
+        <Border x:Name="Buttons" Grid.Row="1" d:LayoutOverrides="TopPosition, BottomPosition" BorderThickness="0,1,0,0" Padding="24,16">
             <Border.BorderBrush>
                 <SolidColorBrush Color="{DynamicResource Gray300}"/>
             </Border.BorderBrush>
@@ -210,5 +532,5 @@
                 <Button x:Name="SettingsApplyButton" AutomationProperties.AutomationId="SettingsApplyButton" Click="SettingsApplyButton_Click" IsDefault="True" Content="APPLY" HorizontalAlignment="Center" Style="{DynamicResource ButtonStyle1}" VerticalAlignment="Top" Grid.Column="1"/>
             </Grid>
         </Border>
-    </StackPanel>
+    </Grid>
 </Window>

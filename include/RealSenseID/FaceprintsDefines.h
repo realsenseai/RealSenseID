@@ -44,11 +44,10 @@ typedef enum FaOperationFlags
 typedef enum FaVectorFlags
 {
     VecFlagNotSet = 0,
-    VecFlagValidWithMask = 1,
-    VecFlagValidWithoutMask = 2,
-    VecFlagInvalid = 3,
-    VecFlagError1 = 4,
-    VecFlagError2 = 5,
+    VecFlagValidWithoutMask = 1,
+    VecFlagInvalid = 2,
+    VecFlagError1 = 3,
+    VecFlagError2 = 4,
     NumVecFlags
 } FaVectorFlagsEnum;
 
@@ -114,9 +113,7 @@ struct DBFaceprintsElement
 
     // enrollmentDescriptor - is the enrollment faceprints per user.
     // adaptiveDescriptorWithoutMask - is the ongoing faceprints per user with mask (we update it over time).
-    // adaptiveDescriptorWithMask - is the ongoing faceprints per user with mask (deprecated - do not use).
     feature_t adaptiveDescriptorWithoutMask[RSID_FEATURES_VECTOR_ALLOC_SIZE];
-    feature_t adaptiveDescriptorWithMask[RSID_FEATURES_VECTOR_ALLOC_SIZE]; // (deprecated - do not use).
     feature_t enrollmentDescriptor[RSID_FEATURES_VECTOR_ALLOC_SIZE];
 
 #ifdef __cplusplus
@@ -127,7 +124,6 @@ struct DBFaceprintsElement
         flags = 0;
         ::memset(reserved, 0, sizeof(reserved));
         ::memset(adaptiveDescriptorWithoutMask, 0, sizeof(adaptiveDescriptorWithoutMask));
-        ::memset(adaptiveDescriptorWithMask, 0, sizeof(adaptiveDescriptorWithMask));
         ::memset(enrollmentDescriptor, 0, sizeof(enrollmentDescriptor));
     }
 #endif

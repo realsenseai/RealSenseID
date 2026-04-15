@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -32,7 +32,7 @@ public:
      *
      * @param[in] hint Hint for the problem encountered.
      */
-    virtual void OnHint(const AuthenticateStatus hint) = 0;
+    virtual void OnHint(const AuthenticateStatus hint, float frameScore) = 0;
 
 
     /**
@@ -45,6 +45,49 @@ public:
     {
         // default empty impl for backward compatibilty
         (void)faces;
+        (void)ts;
+    }
+
+    /**
+     * Called to inform the client about detected face landmarks during the authentication operation.
+     *
+     * @param[in] landmarks Detected face landmarks. First item is the selected one for the authentication operation.
+     * @param[in] ts timestamp
+     */
+    virtual void OnLandmarksDetected(const std::vector<FaceLandmarks>& landmarks, const unsigned int ts)
+    {
+        // default empty impl for backward compatibility
+        (void)landmarks;
+        (void)ts;
+    }
+
+    /**
+     * Called to inform the client about detected face distances during the authentication operation.
+     *
+     * @param[in] distances Detected face distances. First item is the selected one for the authentication operation.
+     * @param[in] ts timestamp
+     */
+    virtual void OnFaceDistances(const std::vector<double>& distances, const unsigned int ts)
+    {
+        // default empty impl for backward compatibility
+        (void)distances;
+        (void)ts;
+    }
+
+    /**
+     * Called to inform the client that face cropped is ready.
+     *
+     * @param[in] buffer bgr24 image buffer of the authenticated user face.
+     * @param[in] width image width.
+     * @param[in] height image height.
+     * @param[in] ts Timestamp
+     */
+    virtual void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height, const unsigned int ts)
+    {
+        // default empty impl for backward compatibility
+        (void)buffer;
+        (void)width;
+        (void)height;
         (void)ts;
     }
 };

@@ -569,6 +569,7 @@ uvc_error_t uvc_open(
     uvc_device_t *dev,
     uvc_device_handle_t **devh);
 void uvc_close(uvc_device_handle_t *devh);
+uvc_error_t uvc_reset_streaming(uvc_device_handle_t *devh);
 
 uvc_device_t *uvc_get_device(uvc_device_handle_t *devh);
 struct libusb_device_handle *uvc_get_libusb_handle(uvc_device_handle_t *devh);

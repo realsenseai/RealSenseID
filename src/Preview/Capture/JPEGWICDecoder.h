@@ -1,9 +1,11 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 
 #include "JPEGDecoder.h"
 #include "RealSenseID/Preview.h"
 #pragma once
+
+struct IWICImagingFactory;
 
 namespace RealSenseID
 {
@@ -15,10 +17,12 @@ class JPEGWICDecoder
 public:
     JPEGWICDecoder();
     ~JPEGWICDecoder();
+    JPEGWICDecoder(const JPEGWICDecoder&) = delete;
+    JPEGWICDecoder& operator=(const JPEGWICDecoder&) = delete;
     bool DecodeJpeg(Image* res, buffer frame_buffer, size_t max_height, size_t max_width) const;
 
 private:
-    static void InitDecompressor();
+    IWICImagingFactory* _IWICFactory = nullptr;
 };
 
 } // namespace Capture

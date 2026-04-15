@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<resources>
+  <!-- RealSense ID F45x devices -->
+  <usb-device
+      vendor-id="1240"
+      product-id="221" />
+  <usb-device
+      vendor-id="10925"
+      product-id="25459" />
+
+  <!-- RealSense ID F50x devices -->
+  <usb-device
+      vendor-id="16716"
+      product-id="25976" />
+  <usb-device
+      vendor-id="16716"
+      product-id="26214" />
+</resources>

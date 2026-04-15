@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -22,7 +22,7 @@ namespace rsid_wrapper_csharp
             try
             {
                 JavaScriptSerializer js = new JavaScriptSerializer();
-                js.MaxJsonLength = 1024 * 1024 * 50;
+                js.MaxJsonLength = 1024 * 1024 * 150;
                 DbObj json_root = new DbObj();
                 List<rsid.UserFaceprints> jsonstring = new List<rsid.UserFaceprints>();
                 foreach (var (faceprintsDb, userIdDb) in users)
@@ -53,9 +53,10 @@ namespace rsid_wrapper_csharp
         {
             try
             {
-                using (StreamReader reader = new StreamReader(filename)) {
+                using (StreamReader reader = new StreamReader(filename))
+                {
                     JavaScriptSerializer js = new JavaScriptSerializer();
-                    js.MaxJsonLength = 1024 * 1024 * 50;
+                    js.MaxJsonLength = 1024 * 1024 * 150;
                     DbObj obj = js.Deserialize<DbObj>(reader.ReadToEnd());
                     var usr_array = new List<(rsid.Faceprints, string)>();
                     foreach (var uf in obj.db)

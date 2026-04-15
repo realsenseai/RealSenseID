@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "WindowsSerial.h"
 #include "SerialPacket.h"
@@ -62,6 +62,8 @@ WindowsSerial::WindowsSerial(const SerialConfig& config) : _config {config}
         ::CloseHandle(_handle);
         ThrowWinError("Failed to open serial port");
     }
+
+    Clear();
 }
 
 WindowsSerial::~WindowsSerial()
@@ -122,6 +124,20 @@ SerialStatus WindowsSerial::RecvBytes(char* buffer, size_t n_bytes)
     {
         DEBUG_SERIAL(LOG_TAG, "[rcv]", buffer, bytes_actual_read);
         return SerialStatus::Ok;
+    }
+}
+
+void WindowsSerial::Clear()
+{
+    // PurgeComm clears the buffers and terminates pending operations
+    // flags:
+    // PURGE_RXABORT: Terminates all outstanding read operations
+    // PURGE_RXCLEAR: Clears the input buffer
+    // PURGE_TXABORT: Terminates all outstanding write operations
+    // PURGE_TXCLEAR: Clears the output buffer
+    if (!::PurgeComm(_handle, PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXABORT | PURGE_TXCLEAR))
+    {
+        LOG_ERROR(LOG_TAG, "Error flushing serial port. Last error: %x", ::GetLastError());
     }
 }
 } // namespace PacketManager

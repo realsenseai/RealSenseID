@@ -7,6 +7,7 @@ RUN set -eux; \
     apt-get -qq update \
     && apt-get -qqy --no-install-recommends install \
     apt-utils \
+    ccache \
     zip \
     unzip \
     curl \
@@ -55,7 +56,14 @@ RUN set -eux; \
     $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "platform-tools" &&\
     $ANDROID_HOME/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "cmake;3.31.6"
 
-## HOW TO BUILD
+# This seems to be not working for podman builds?
+RUN git config --global --add safe.directory "*"
+
+## HOW TO BUILD (docker)
 # docker build -t rsid-builder:latest .
 # docker run --rm -it -v.:/rsid-builder rsid-builder bash -c "cd wrappers/android && ./gradlew clean bundleStandardReleaseAar"
 # Find your output in `wrappers/android/build/outputs/aar/`
+
+## HOW TO BUILD (podman)
+# podman buildx build -t rsid-builder:latest .
+# podman run --rm -it -v.:/rsid-builder rsid-builder bash -c "git config --global --add safe.directory ""*"" && cd wrappers/android && ./gradlew clean bundleStandardReleaseAar"

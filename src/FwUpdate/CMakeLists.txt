@@ -9,4 +9,4 @@ target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${SOURCES})
 
 add_subdirectory(Common)
 add_subdirectory(F45x)
-add_subdirectory(F46x)
+add_subdirectory(F50x)

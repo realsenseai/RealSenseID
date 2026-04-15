@@ -1,19 +1,29 @@
 ﻿// License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using Microsoft.Win32;
 using rsid;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Input;
-using System.Threading.Tasks;
-using System.Threading;
-using System.Text.RegularExpressions;
 
 namespace rsid_wrapper_csharp
 {
+    public enum Mode
+    {
+        Face,
+        Person,
+        Other
+    }
+
     /// <summary>
     /// Interaction logic for EnrollInput.xaml
     /// </summary>
@@ -24,6 +34,87 @@ namespace rsid_wrapper_csharp
         private CancellationTokenSource cts = new CancellationTokenSource();
         public DeviceConfig Config { get; private set; }
         public MainWindow.FlowMode FlowMode { get; private set; }
+        public MainWindow.OperationMode OperationMode { get; private set; }
+
+        // Static fields for session persistence
+        private static bool _sessionIsBasicExpanded = true;
+        private static bool _sessionIsAdvancedExpanded = false;
+        private static bool _sessionIsFwUpdateExpanded = false;
+
+        public bool IsBasicExpanded
+        {
+            get { return (bool)GetValue(IsBasicExpandedProperty); }
+            set { SetValue(IsBasicExpandedProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsBasicExpandedProperty =
+            DependencyProperty.Register("IsBasicExpanded", typeof(bool), typeof(AuthSettingsInput),
+            new PropertyMetadata(true, (d, e) => _sessionIsBasicExpanded = (bool)e.NewValue));
+
+        public bool IsAdvancedExpanded
+        {
+            get { return (bool)GetValue(IsAdvancedExpandedProperty); }
+            set { SetValue(IsAdvancedExpandedProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsAdvancedExpandedProperty =
+            DependencyProperty.Register("IsAdvancedExpanded", typeof(bool), typeof(AuthSettingsInput),
+            new PropertyMetadata(false, (d, e) => _sessionIsAdvancedExpanded = (bool)e.NewValue));
+
+        public bool IsFwUpdateExpanded
+        {
+            get { return (bool)GetValue(IsFwUpdateExpandedProperty); }
+            set { SetValue(IsFwUpdateExpandedProperty, value); }
+        }
+
+        public static readonly DependencyProperty IsFwUpdateExpandedProperty =
+            DependencyProperty.Register("IsFwUpdateExpanded", typeof(bool), typeof(AuthSettingsInput),
+            new PropertyMetadata(false, (d, e) => _sessionIsFwUpdateExpanded = (bool)e.NewValue));
+
+        public Visibility DistanceSettingsVisibility
+        {
+            get { return (Visibility)GetValue(DistanceSettingsVisibilityProperty); }
+            set { SetValue(DistanceSettingsVisibilityProperty, value); }
+        }
+
+        public static readonly DependencyProperty DistanceSettingsVisibilityProperty =
+            DependencyProperty.Register("DistanceSettingsVisibility", typeof(Visibility), typeof(AuthSettingsInput), new PropertyMetadata(Visibility.Visible));
+
+        private void UpdateDistanceSettingsVisibility()
+        {
+            // Default logic: visible only if in FA team (similar to existing converter logic for FA-only settings)
+            bool isVisible = (Mode == Mode.Face);
+
+            // Special logic: Hide on F50x devices if running Face Detection Only or Recognition Only
+            if (isVisible && MyMainWindow.GetDeviceType() == DeviceType.F50x)
+            {
+                if (Operation_DetectionOnly.IsChecked == true || Operation_RecognitionOnly.IsChecked == true)
+                {
+                    isVisible = false;
+                }
+            }
+
+            DistanceSettingsVisibility = isVisible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        public static readonly DependencyProperty ModeProperty =
+            DependencyProperty.Register("Mode", typeof(Mode), typeof(AuthSettingsInput), 
+                new PropertyMetadata(Mode.Face, OnModeChanged));
+
+        private static void OnModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is AuthSettingsInput window)
+            {
+                window.UpdateDistanceSettingsVisibility();
+            }
+        }
+
+        public Mode Mode
+        {
+            get { return (Mode)GetValue(ModeProperty); }
+            set { SetValue(ModeProperty, value); }
+        }
+
         public PreviewConfig PreviewConfig { get; private set; }
         public string FirmwareFileName { get; private set; } = string.Empty;
         public bool ForceFirmwareUpdate { get; private set; } = false;
@@ -33,29 +124,48 @@ namespace rsid_wrapper_csharp
             DeviceConfig? config,
             PreviewConfig? previewConfig,
             MainWindow.FlowMode flowMode,
+            MainWindow.OperationMode operationMode,
             bool previewEnabled,
-            SerialConfig serialConfig)
+            SerialConfig serialConfig,
+            bool one2oneEnabled)
         {
             this.Owner = Application.Current.MainWindow;
+            this.DataContext = this;
             this.serialConfig = serialConfig;
 
             InitializeComponent();
 
+            IsBasicExpanded = _sessionIsBasicExpanded;
+            IsAdvancedExpanded = _sessionIsAdvancedExpanded;
+            IsFwUpdateExpanded = _sessionIsFwUpdateExpanded;
+
             // Init dialog values according to current config
             FirmwareVersionNumber.Text = fwVersion;
+            OperationMode = operationMode;
             var hasConfig = config.HasValue;
             if (hasConfig)
             {
                 Config = config.Value;
                 FlowMode = flowMode;
                 PreviewConfig = previewConfig.Value;
-                UpdateUiSettingsValues(config.Value, previewConfig.Value, flowMode);
+                UpdateUiSettingsValues(config.Value, previewConfig.Value, flowMode, operationMode);
             }
 
-            AlgoFlow_All.IsEnabled = hasConfig;
-            AlgoFlow_DetectionOnly.IsEnabled = hasConfig;
-            AlgoFlow_RecognitionOnly.IsEnabled = hasConfig;
-            AlgoFlow_SpoofOnly.IsEnabled = hasConfig;
+            FaceSelectionPolicySingle.IsEnabled = hasConfig;
+            FaceSelectionPolicyAll.IsEnabled = hasConfig;
+
+            Operation_All.IsEnabled = hasConfig;
+            Operation_PersonOnly.IsEnabled = hasConfig && !one2oneEnabled;
+            Operation_PoseOnly.IsEnabled = hasConfig && !one2oneEnabled;
+            Operation_BarcodeOnly.IsEnabled = hasConfig && !one2oneEnabled;
+            Operation_BodyPartOnly.IsEnabled = hasConfig && !one2oneEnabled;
+            Operation_DetectionOnly.IsEnabled = hasConfig && !one2oneEnabled;
+            Operation_RecognitionOnly.IsEnabled = hasConfig;
+            Operation_SpoofOnly.IsEnabled = hasConfig && !one2oneEnabled;
+
+            Feature_Rectangle.IsEnabled = hasConfig && config.Value.landmarksEnable != (byte)1;
+            Feature_Landmarks.IsEnabled = hasConfig;
+            Feature_Distance.IsEnabled = hasConfig;
 
             CameraRotation0.IsEnabled = hasConfig;
             CameraRotation180.IsEnabled = hasConfig;
@@ -73,6 +183,14 @@ namespace rsid_wrapper_csharp
             FrontalModerate.IsEnabled = hasConfig;
             FrontalNone.IsEnabled = hasConfig;
 
+            StaticMode.IsEnabled = hasConfig;
+            WalkthroughMode.IsEnabled = hasConfig;
+
+            NoDistanceLimit.IsEnabled = hasConfig;
+            DistanceLimit70cm.IsEnabled = hasConfig;
+            DistanceLimit100cm.IsEnabled = hasConfig;
+            DistanceLimit130cm.IsEnabled = hasConfig;
+
             bool previewEnabledAuth = previewEnabled && hasConfig;
 
             PreviewModeMJPEG_1080P.IsEnabled = previewEnabledAuth;
@@ -81,31 +199,222 @@ namespace rsid_wrapper_csharp
             DumpModeNone.IsEnabled = previewEnabledAuth;
             DumpModeFace.IsEnabled = previewEnabledAuth;
             DumpModeFull.IsEnabled = previewEnabledAuth;
-#if !RSID_NETWORK            
-            CheckForUpdatesLink.Visibility = Visibility.Hidden;
-#else
-            CheckForUpdatesLink.Visibility = Visibility.Visible;
-#endif
+            DumpModeDebug.IsEnabled = previewEnabledAuth;
 
+            if (MyMainWindow.GetDeviceType() == DeviceType.F45x)
+            {
+                ModeGrid.Visibility = Visibility.Collapsed;
+                CheckForUpdatesLink.Visibility = Visibility.Visible;
+            }
+
+            UpdateDistanceSettingsVisibility();
         }
 
-        private void UpdateUiSettingsValues(DeviceConfig deviceConfig, PreviewConfig previewConfig, MainWindow.FlowMode flowMode)
+        private Mode DetermineAllowedMode(MainWindow.OperationMode mode)
         {
-            AlgoFlow_All.IsChecked = deviceConfig.algoFlow == DeviceConfig.AlgoFlow.All;
-            AlgoFlow_DetectionOnly.IsChecked = deviceConfig.algoFlow == DeviceConfig.AlgoFlow.FaceDetectionOnly;
-            AlgoFlow_RecognitionOnly.IsChecked = deviceConfig.algoFlow == DeviceConfig.AlgoFlow.RecognitionOnly;
-            AlgoFlow_SpoofOnly.IsChecked = deviceConfig.algoFlow == DeviceConfig.AlgoFlow.SpoofOnly;
+            switch (mode)
+            {
+                case MainWindow.OperationMode.All:
+                case MainWindow.OperationMode.FaceDetectionOnly:
+                case MainWindow.OperationMode.SpoofOnly:
+                case MainWindow.OperationMode.RecognitionOnly:
+                    return Mode.Face;
+
+                case MainWindow.OperationMode.PersonDetectionOnly:
+                case MainWindow.OperationMode.PoseEstimationOnly:
+                case MainWindow.OperationMode.BodyPartDetectionOnly:
+                    return Mode.Person;
+
+                case MainWindow.OperationMode.BarcodeDecodingOnly:
+                    return Mode.Other;
+
+                default:
+                    return Mode.Face;
+            }
+        }
+
+        private void UpdateModeUi(Mode mode)
+        {
+            Mode = mode;
+
+            ValidateDependentSettings(mode);
+            UpdateSensorSettingsState();
+
+            // Control Apply button
+            CheckCanApply();
+        }
+
+        private void ValidateDependentSettings(Mode mode)
+        {
+            // 1. Reset INVISIBLE settings to GLOBAL DEFAULTS when not in FA mode
+            // (Only reset settings that become completely irrelevant/hidden for the other modes)
+            if (mode != Mode.Face)
+            {
+                // Face Selection Strategy -> Single
+                FaceSelectionPolicySingle.IsChecked = true;
+
+                // Anti-Spoofing -> Standard
+                ConfidenceStandard.IsChecked = true;
+
+                // Frontal Face Policy -> None
+                FrontalNone.IsChecked = true;
+
+                // Distance Limit -> No Limit
+                NoDistanceLimit.IsChecked = true;
+
+                // Database Strategy -> On Device
+                ServerModeNo.IsChecked = true; 
+
+                // Features -> Only Rectangle
+                Feature_Rectangle.IsChecked = true;
+                Feature_Landmarks.IsChecked = false;
+                Feature_Distance.IsChecked = false;
+
+                // Matching Threshold -> 0 (String "0" for TextBlocks/Boxes)
+                MatchThresh.Text = "0";
+
+                // Max Spoofs -> 0
+                MaxSpoofs.Text = "0";
+
+                // ROI -> 1 full-frame ROI
+                if (NumRoisCombo != null) NumRoisCombo.SelectedIndex = 0;
+                UpdateRoiPanelsVisibility(1);
+                ResetRoiButton_Click(null, null);
+            }
+
+            // Re-evaluate 'Apply' button state
+            CheckCanApply();
+        }
+
+
+
+        private void ModeSelector_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (ModeSelector.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string tag)
+            {
+                if (tag == "FA") UpdateModeUi(Mode.Face);
+                else if (tag == "Person") UpdateModeUi(Mode.Person);
+                else if (tag == "Other") UpdateModeUi(Mode.Other);
+            }
+        }
+
+        private void RadioButton_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateDistanceSettingsVisibility();
+            CheckCanApply();
+        }
+
+        private void CheckCanApply()
+        {
+            if (SettingsApplyButton == null) return;
+
+            bool isValid = false;
+
+            if (Mode == Mode.Face)
+            {
+                isValid = (Operation_All.IsChecked == true) ||
+                          (Operation_DetectionOnly.IsChecked == true) ||
+                          (Operation_SpoofOnly.IsChecked == true) ||
+                          (Operation_RecognitionOnly.IsChecked == true);
+            }
+            else if (Mode == Mode.Person)
+            {
+                isValid = (Operation_PersonOnly.IsChecked == true) ||
+                          (Operation_PoseOnly.IsChecked == true) ||
+                          (Operation_BodyPartOnly.IsChecked == true);
+            }
+            else if (Mode == Mode.Other)
+            {
+                isValid = (Operation_BarcodeOnly.IsChecked == true);
+            }
+
+            // Frame Dumps validation
+            if (isValid)
+            {
+                if (Mode == Mode.Face)
+                {
+                    // Valid: None, Face, Full
+                    if (DumpModeDebug.IsChecked == true) isValid = false;
+                    else if (DumpModeNone.IsChecked != true && DumpModeFace.IsChecked != true && DumpModeFull.IsChecked != true) isValid = false;
+                }
+                else if (Mode == Mode.Person)
+                {
+                    // Valid: None, Full, Debug
+                    if (DumpModeFace.IsChecked == true) isValid = false;
+                    else if (DumpModeNone.IsChecked != true && DumpModeFull.IsChecked != true && DumpModeDebug.IsChecked != true) isValid = false;
+                }
+                else // Other
+                {
+                    // Valid: None, Debug
+                    if (DumpModeFace.IsChecked == true || DumpModeFull.IsChecked == true) isValid = false;
+                    else if (DumpModeNone.IsChecked != true && DumpModeDebug.IsChecked != true) isValid = false;
+                }
+            }
+
+            SettingsApplyButton.IsEnabled = isValid;
+        }
+
+        private void CheckCanApply(object sender = null, RoutedEventArgs e = null)
+        {
+            CheckCanApply();
+        }
+
+        private void UpdateUiSettingsValues(DeviceConfig deviceConfig, PreviewConfig previewConfig, MainWindow.FlowMode flowMode, MainWindow.OperationMode viewerAlgoFlow)
+        {
+            // Determine Mode from the current operation mode
+            var mode = DetermineAllowedMode(viewerAlgoFlow);
+            
+            // Set ComboBox selection
+            switch (mode)
+            {
+                case Mode.Face:
+                    ModeSelector.SelectedIndex = 0; 
+                    break;
+                case Mode.Person:
+                    ModeSelector.SelectedIndex = 1;
+                    break;
+                case Mode.Other:
+                    ModeSelector.SelectedIndex = 2;
+                    break;
+            }
+
+            // Update UI visibility based on the mode
+            UpdateModeUi(mode);
+
+            // Select the correct sub-option
+            Operation_All.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.All;
+            Operation_PersonOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.PersonDetectionOnly;
+            Operation_PoseOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.PoseEstimationOnly;
+            Operation_BarcodeOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.BarcodeDecodingOnly;
+            Operation_BodyPartOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.BodyPartDetectionOnly;
+            Operation_DetectionOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.FaceDetectionOnly;
+            Operation_RecognitionOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.RecognitionOnly;
+            Operation_SpoofOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.SpoofOnly;
+
+            // Trigger CanApply check
+            CheckCanApply();
+
+            FaceSelectionPolicySingle.IsChecked = deviceConfig.faceSelectionPolicy == DeviceConfig.FaceSelectionPolicy.Single;
+            FaceSelectionPolicyAll.IsChecked = deviceConfig.faceSelectionPolicy == DeviceConfig.FaceSelectionPolicy.All;
 
             ServerModeNo.IsChecked = flowMode == MainWindow.FlowMode.Device;
             ServerModeYes.IsChecked = flowMode == MainWindow.FlowMode.Server;
 
-            ConfidenceHigh.IsChecked = deviceConfig.matcherConfidenceLevel == MatcherConfidenceLevel.High;
-            ConfidenceEnhanced.IsChecked = deviceConfig.matcherConfidenceLevel == MatcherConfidenceLevel.Medium;
-            ConfidenceStandard.IsChecked = deviceConfig.matcherConfidenceLevel == MatcherConfidenceLevel.Low;
+            ConfidenceHigh.IsChecked = deviceConfig.securityLevel == DeviceConfig.SecurityLevel.High;
+            ConfidenceEnhanced.IsChecked = deviceConfig.securityLevel == DeviceConfig.SecurityLevel.Medium;
+            ConfidenceStandard.IsChecked = deviceConfig.securityLevel == DeviceConfig.SecurityLevel.Low;
 
             FrontalStrict.IsChecked = deviceConfig.frontalFacePolicy == FrontalFacePolicy.Strict;
             FrontalModerate.IsChecked = deviceConfig.frontalFacePolicy == FrontalFacePolicy.Moderate;
             FrontalNone.IsChecked = deviceConfig.frontalFacePolicy == FrontalFacePolicy.None;
+
+            StaticMode.IsChecked = deviceConfig.personMotionMode == DeviceConfig.PersonMotionMode.Static;
+            WalkthroughMode.IsChecked = deviceConfig.personMotionMode == DeviceConfig.PersonMotionMode.Walkthrough;
+
+            NoDistanceLimit.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.NoLimit;
+            DistanceLimit70cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Short;
+            DistanceLimit100cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Mid;
+            DistanceLimit130cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Long;
 
             CameraRotation0.IsChecked = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_0_Deg;
             CameraRotation180.IsChecked = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg;
@@ -118,25 +427,101 @@ namespace rsid_wrapper_csharp
             DumpModeNone.IsChecked = deviceConfig.dumpMode == DeviceConfig.DumpMode.None;
             DumpModeFace.IsChecked = deviceConfig.dumpMode == DeviceConfig.DumpMode.CroppedFace;
             DumpModeFull.IsChecked = deviceConfig.dumpMode == DeviceConfig.DumpMode.FullFrame;
+            DumpModeDebug.IsChecked = deviceConfig.dumpMode == DeviceConfig.DumpMode.DebugDump;
 
             MaxSpoofs.Text = deviceConfig.maxSpoofs.ToString();
+            MatchThresh.Text = deviceConfig.matchThresh.ToString();
+            SensorExpTime.Text = deviceConfig.sensorExpTime.ToString();
+            SensorGain.Text = deviceConfig.sensorGain.ToString();
+
             AuthGpioChk.IsChecked = deviceConfig.GpioAuthToggling == 1;
+
+            // Populate all ROI rows
+            int numRois = Math.Max(1, Math.Min(5, (int)deviceConfig.num_rois));
+            NumRoisCombo.SelectedIndex = numRois - 1;
+            UpdateRoiPanelsVisibility(numRois);
+
+            SetRoiTextBoxes(0, deviceConfig.detection_rois[0]);
+            SetRoiTextBoxes(1, deviceConfig.detection_rois[1]);
+            SetRoiTextBoxes(2, deviceConfig.detection_rois[2]);
+            SetRoiTextBoxes(3, deviceConfig.detection_rois[3]);
+            SetRoiTextBoxes(4, deviceConfig.detection_rois[4]);
+
+            Feature_Rectangle.IsChecked = deviceConfig.rectEnable == (byte)1;
+            if (deviceConfig.landmarksEnable == (byte)1)
+            {
+                Feature_Landmarks.IsChecked = true;
+                Feature_Rectangle.IsChecked = true;
+                Feature_Rectangle.IsEnabled = false;
+            }
+            else
+            {
+                Feature_Landmarks.IsChecked = false;
+                Feature_Rectangle.IsEnabled = true;
+            }
+            Feature_Distance.IsChecked = deviceConfig.distanceEnabled == 1;
+
+            UpdateSensorSettingsState();
         }
 
-        void QueryUiSettingsValues(out DeviceConfig deviceConfig, out PreviewConfig previewConfig, out MainWindow.FlowMode flowMode)
+        void QueryUiSettingsValues(out DeviceConfig deviceConfig, out PreviewConfig previewConfig, out MainWindow.FlowMode flowMode, out MainWindow.OperationMode viewerAlgoFlow)
         {
             deviceConfig = new DeviceConfig();
+            deviceConfig.detection_rois = new Roi[5];
+            deviceConfig.num_rois = 1;
             previewConfig = new PreviewConfig();
+            viewerAlgoFlow = MainWindow.OperationMode.All;
 
             // algo flow
-            if (AlgoFlow_All.IsChecked.GetValueOrDefault())
+            if (Operation_All.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.All;
                 deviceConfig.algoFlow = DeviceConfig.AlgoFlow.All;
-            else if (AlgoFlow_DetectionOnly.IsChecked.GetValueOrDefault())
+            }
+            else if (Operation_DetectionOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.FaceDetectionOnly;
                 deviceConfig.algoFlow = DeviceConfig.AlgoFlow.FaceDetectionOnly;
-            else if (AlgoFlow_RecognitionOnly.IsChecked.GetValueOrDefault())
+            }
+            else if (Operation_RecognitionOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.RecognitionOnly;
                 deviceConfig.algoFlow = DeviceConfig.AlgoFlow.RecognitionOnly;
-            else if (AlgoFlow_SpoofOnly.IsChecked.GetValueOrDefault())
+            }
+            else if (Operation_SpoofOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.SpoofOnly;
                 deviceConfig.algoFlow = DeviceConfig.AlgoFlow.SpoofOnly;
+            }
+            // Person, Pose, BodyPart & Barcode detectors (f500 only).
+            // These options are not part of the algo flow setting sent to the device since
+            // they are only for viewer display the right button option
+            else if (Operation_PersonOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.PersonDetectionOnly;                
+                deviceConfig.algoFlow = Config.algoFlow;
+            }
+            else if (Operation_PoseOnly.IsChecked.GetValueOrDefault())
+            {                
+                viewerAlgoFlow = MainWindow.OperationMode.PoseEstimationOnly;
+                deviceConfig.algoFlow = Config.algoFlow; 
+            }
+            else if (Operation_BodyPartOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.BodyPartDetectionOnly;
+                deviceConfig.algoFlow = Config.algoFlow;
+            }
+            else if (Operation_BarcodeOnly.IsChecked.GetValueOrDefault())
+            {
+                viewerAlgoFlow = MainWindow.OperationMode.BarcodeDecodingOnly;
+                deviceConfig.algoFlow = Config.algoFlow;
+            }
+
+            // face selection policy (all/single)
+            if (FaceSelectionPolicyAll.IsChecked.GetValueOrDefault())
+                deviceConfig.faceSelectionPolicy = DeviceConfig.FaceSelectionPolicy.All;
+            else
+                deviceConfig.faceSelectionPolicy = DeviceConfig.FaceSelectionPolicy.Single;
 
             // camera rotation
             if (CameraRotation0.IsChecked.GetValueOrDefault())
@@ -176,6 +561,34 @@ namespace rsid_wrapper_csharp
             else if (FrontalNone.IsChecked.GetValueOrDefault())
                 deviceConfig.frontalFacePolicy = FrontalFacePolicy.None;
 
+            // person motion mode
+            bool isPersonTeam = (viewerAlgoFlow == MainWindow.OperationMode.PersonDetectionOnly ||
+                                 viewerAlgoFlow == MainWindow.OperationMode.PoseEstimationOnly ||
+                                 viewerAlgoFlow == MainWindow.OperationMode.BodyPartDetectionOnly) ||
+                                 (Operation_PersonOnly.IsChecked.GetValueOrDefault() || 
+                                  Operation_PoseOnly.IsChecked.GetValueOrDefault() || 
+                                  Operation_BodyPartOnly.IsChecked.GetValueOrDefault());
+
+            if (WalkthroughMode.IsChecked.GetValueOrDefault() || isPersonTeam)
+                deviceConfig.personMotionMode = DeviceConfig.PersonMotionMode.Walkthrough;
+            else // default is static
+                deviceConfig.personMotionMode = DeviceConfig.PersonMotionMode.Static;
+
+            // distance limit
+            if (DistanceSettingsVisibility != Visibility.Visible)
+            {
+                // Force to No Limit if hidden
+                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.NoLimit;
+            }
+            else if (DistanceLimit70cm.IsChecked.GetValueOrDefault())
+                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Short;
+            else if (DistanceLimit100cm.IsChecked.GetValueOrDefault())
+                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Mid;
+            else if (DistanceLimit130cm.IsChecked.GetValueOrDefault())
+                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Long;
+            else
+                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.NoLimit;
+
             previewConfig.portraitMode = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_0_Deg || deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg;
 
             if (PreviewModeMJPEG_1080P.IsChecked.GetValueOrDefault())
@@ -193,6 +606,8 @@ namespace rsid_wrapper_csharp
                 deviceConfig.dumpMode = DeviceConfig.DumpMode.CroppedFace;
             else if (DumpModeFull.IsChecked.GetValueOrDefault())
                 deviceConfig.dumpMode = DeviceConfig.DumpMode.FullFrame;
+            else if (DumpModeDebug.IsChecked.GetValueOrDefault())
+                deviceConfig.dumpMode = DeviceConfig.DumpMode.DebugDump;
             else // default is no dump
                 deviceConfig.dumpMode = DeviceConfig.DumpMode.None;
 
@@ -205,9 +620,59 @@ namespace rsid_wrapper_csharp
             {
                 throw new Exception("Max Spoofs is invalid. Must be in range of 0-255.");
             }
+
+            // match thresh
+            if (short.TryParse(MatchThresh.Text.Trim(), out short matchThresh))
+            {
+                deviceConfig.matchThresh = matchThresh;
+            }
+            else
+            {
+                throw new Exception("Matching Threshold is invalid.");
+            }
+
+            // Sensor exposure settings
+            if (short.TryParse(SensorExpTime.Text.Trim(), out short sensorExpTime))
+            {
+                deviceConfig.sensorExpTime = sensorExpTime;
+            }
+            else
+            {
+                throw new Exception("Sensor exposure time is invalid.");
+            }
+
+            if (short.TryParse(SensorGain.Text.Trim(), out short sensorGain))
+            {
+                deviceConfig.sensorGain = sensorGain;
+            }
+            else
+            {
+                throw new Exception("Sensor gain is invalid.");
+            }
+
             // GPIO Auth Toggling
             deviceConfig.GpioAuthToggling = AuthGpioChk.IsChecked.GetValueOrDefault() ? 1 : 0;
 
+            // ROI
+            deviceConfig.num_rois = (byte)Math.Max(1, Math.Min(5, NumRoisCombo.SelectedIndex + 1));
+            for (int i = 0; i < deviceConfig.num_rois; i++)
+            {
+                deviceConfig.detection_rois[i] = GetRoiFromTextBoxes(i);
+            }
+
+            // Features
+            deviceConfig.rectEnable = Feature_Rectangle.IsChecked.GetValueOrDefault() ? (byte)1 : (byte)0;
+            deviceConfig.landmarksEnable = Feature_Landmarks.IsChecked.GetValueOrDefault() ? (byte)1 : (byte)0;
+
+            if (DistanceSettingsVisibility != Visibility.Visible)
+            {
+                // Force disable if hidden
+                deviceConfig.distanceEnabled = 0;
+            }
+            else
+            {
+                deviceConfig.distanceEnabled = Feature_Distance.IsChecked.GetValueOrDefault() ? (byte)1 : (byte)0;
+            }
         }
 
         private string GetFirmwareDirectory()
@@ -215,6 +680,124 @@ namespace rsid_wrapper_csharp
             var executablePath = Path.GetDirectoryName(Assembly.GetEntryAssembly()?.Location);
             var firmwarePath = Path.Combine(Directory.GetParent(executablePath)?.FullName, "firmware");
             return Directory.Exists(firmwarePath) ? firmwarePath : executablePath;
+        }
+
+        private void LandmarksCheckbox_Click(object sender, RoutedEventArgs e)
+        {
+            if (Feature_Landmarks.IsChecked.GetValueOrDefault())
+            {
+                Feature_Rectangle.IsChecked = true;
+                Feature_Rectangle.IsEnabled = false;
+            }
+            else
+            {
+                Feature_Rectangle.IsEnabled = true;
+            }
+        }
+
+        private Roi GetDefaultRoi()
+        {
+            var roi = new Roi();
+            roi.x = 0;
+            roi.y = 0;
+            if (CameraRotation90.IsChecked == true || CameraRotation270.IsChecked == true)
+            {
+                roi.width = 1920;
+                roi.height = 1080;
+            }
+            else
+            {
+                roi.width = 1080;
+                roi.height = 1920;
+            }
+            return roi;
+        }
+
+        private void SetRoiTextBoxes(int index, Roi roi)
+        {
+            switch (index)
+            {
+                case 0: RoiX.Text = roi.x.ToString(); RoiY.Text = roi.y.ToString(); RoiWidth.Text = roi.width.ToString(); RoiHeight.Text = roi.height.ToString(); break;
+                case 1: Roi1X.Text = roi.x.ToString(); Roi1Y.Text = roi.y.ToString(); Roi1Width.Text = roi.width.ToString(); Roi1Height.Text = roi.height.ToString(); break;
+                case 2: Roi2X.Text = roi.x.ToString(); Roi2Y.Text = roi.y.ToString(); Roi2Width.Text = roi.width.ToString(); Roi2Height.Text = roi.height.ToString(); break;
+                case 3: Roi3X.Text = roi.x.ToString(); Roi3Y.Text = roi.y.ToString(); Roi3Width.Text = roi.width.ToString(); Roi3Height.Text = roi.height.ToString(); break;
+                case 4: Roi4X.Text = roi.x.ToString(); Roi4Y.Text = roi.y.ToString(); Roi4Width.Text = roi.width.ToString(); Roi4Height.Text = roi.height.ToString(); break;
+            }
+        }
+
+        private Roi GetRoiFromTextBoxes(int index)
+        {
+            var roi = new Roi();
+            string x, y, w, h;
+            switch (index)
+            {
+                case 0: x = RoiX.Text; y = RoiY.Text; w = RoiWidth.Text; h = RoiHeight.Text; break;
+                case 1: x = Roi1X.Text; y = Roi1Y.Text; w = Roi1Width.Text; h = Roi1Height.Text; break;
+                case 2: x = Roi2X.Text; y = Roi2Y.Text; w = Roi2Width.Text; h = Roi2Height.Text; break;
+                case 3: x = Roi3X.Text; y = Roi3Y.Text; w = Roi3Width.Text; h = Roi3Height.Text; break;
+                case 4: x = Roi4X.Text; y = Roi4Y.Text; w = Roi4Width.Text; h = Roi4Height.Text; break;
+                default: return roi;
+            }
+            if (short.TryParse(x.Trim(), out short px)) roi.x = px;
+            if (short.TryParse(y.Trim(), out short py)) roi.y = py;
+            if (short.TryParse(w.Trim(), out short pw)) roi.width = pw;
+            if (short.TryParse(h.Trim(), out short ph)) roi.height = ph;
+            return roi;
+        }
+
+        private void UpdateRoiPanelsVisibility(int numRois)
+        {
+            RoiPanel1.Visibility = numRois >= 2 ? Visibility.Visible : Visibility.Collapsed;
+            RoiPanel2.Visibility = numRois >= 3 ? Visibility.Visible : Visibility.Collapsed;
+            RoiPanel3.Visibility = numRois >= 4 ? Visibility.Visible : Visibility.Collapsed;
+            RoiPanel4.Visibility = numRois >= 5 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void NumRoisCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (NumRoisCombo == null) return;
+            int numRois = Math.Max(1, NumRoisCombo.SelectedIndex + 1);
+            UpdateRoiPanelsVisibility(numRois);
+            // Reset newly revealed ROI panels to defaults
+            int prevNumRois = e.RemovedItems.Count > 0 ? NumRoisCombo.Items.IndexOf(e.RemovedItems[0]) + 1 : numRois;
+            for (int i = prevNumRois; i < numRois; i++)
+            {
+                SetRoiTextBoxes(i, GetDefaultRoi());
+            }
+        }
+
+        private void ResetRoiButton_Click(object sender, RoutedEventArgs e)
+        {
+            SetRoiTextBoxes(0, GetDefaultRoi());
+            CheckCanApply();
+        }
+
+        private void ResetRoi1Button_Click(object sender, RoutedEventArgs e) { SetRoiTextBoxes(1, GetDefaultRoi()); }
+        private void ResetRoi2Button_Click(object sender, RoutedEventArgs e) { SetRoiTextBoxes(2, GetDefaultRoi()); }
+        private void ResetRoi3Button_Click(object sender, RoutedEventArgs e) { SetRoiTextBoxes(3, GetDefaultRoi()); }
+        private void ResetRoi4Button_Click(object sender, RoutedEventArgs e) { SetRoiTextBoxes(4, GetDefaultRoi()); }
+
+        private void PersonMotionMode_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateSensorSettingsState();
+            CheckCanApply();
+        }
+
+        private void UpdateSensorSettingsState()
+        {
+            // Enable if Mode is Person (regardless of current MotionMode which only updates on Apply)
+            // OR if MotionMode is Walkthrough (for legacy/other cases if they exist)
+            bool isPersonMode = Mode == Mode.Person;
+            bool isWalkthrough = WalkthroughMode.IsChecked.GetValueOrDefault();
+            bool enableSensorSettings = isPersonMode || isWalkthrough;
+
+            if (!enableSensorSettings)
+            {
+                SensorExpTime.Text = "0";
+                SensorGain.Text = "0";
+            }
+            SensorExpTime.IsEnabled = enableSensorSettings;
+            SensorGain.IsEnabled = enableSensorSettings;
         }
 
         private void UpdateFirmwareButton_Click(object sender, RoutedEventArgs e)
@@ -238,9 +821,10 @@ namespace rsid_wrapper_csharp
 
         private void SettingsApplyButton_Click(object sender, RoutedEventArgs e)
         {
-            QueryUiSettingsValues(out DeviceConfig config, out PreviewConfig previewConfig, out MainWindow.FlowMode flowMode);
+            QueryUiSettingsValues(out DeviceConfig config, out PreviewConfig previewConfig, out MainWindow.FlowMode flowMode, out MainWindow.OperationMode operationMode);
             Config = config;
             FlowMode = flowMode;
+            OperationMode = operationMode;
             PreviewConfig = previewConfig;
             DialogResult = true;
         }
@@ -256,6 +840,9 @@ namespace rsid_wrapper_csharp
             if (e.ChangedButton == MouseButton.Left)
                 this.DragMove();
         }
+
+        private static readonly string ReleaseInfoUrl = "https://github.com/realsenseai/RealSenseID/raw/refs/heads/master/release_info.json";
+        private static readonly HttpClient httpClient = new HttpClient() { Timeout = TimeSpan.FromSeconds(5) };
 
         private void OnUpdateCheckStart()
         {
@@ -273,98 +860,78 @@ namespace rsid_wrapper_csharp
             CheckUpdatesBar.Visibility = Visibility.Collapsed;
         }
 
+        private static ulong EncodeSwVersion(string versionStr)
+        {
+            var parts = versionStr.Split('.');
+            if (parts.Length < 3) return 0;
+            if (int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor) && int.TryParse(parts[2], out int patch))
+                return (ulong)(major * 10000 + minor * 100 + patch);
+            return 0;
+        }
+
+        private static ulong EncodeFwVersion(string versionStr)
+        {
+            var parts = versionStr.Split('.');
+            if (parts.Length < 4) return 0;
+            if (int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor) &&
+                int.TryParse(parts[2], out int revision) && int.TryParse(parts[3], out int build))
+                return (ulong)major * 100000000 + (ulong)minor * 1000000 + (ulong)revision * 10000 + (ulong)build;
+            return 0;
+        }
+
         private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
         {
-            var operationTimeout = TimeSpan.FromSeconds(8);
-            rsid.UpdateChecker.ReleaseInfo remoteInfo = null;
-            rsid.UpdateChecker.ReleaseInfo localInfo = null;
             OnUpdateCheckStart();
-
-            var cancellationToken = cts.Token;
-            var timeout = Task.Delay(operationTimeout, cancellationToken);
-            var task1 = Task.Run(() =>
-            {
-                var status = rsid.UpdateChecker.GetRemoteReleaseInfo(out remoteInfo);
-                cancellationToken.ThrowIfCancellationRequested();
-                return status;
-            }, cancellationToken);
-            var task2 = Task.Run(() =>
-            {
-                var status = rsid.UpdateChecker.GetLocalReleaseInfo(serialConfig, out localInfo);
-                cancellationToken.ThrowIfCancellationRequested();
-                return status;
-            }, cancellationToken);
-
-
-            // Wait for either all tasks to complete or the timeout            
             try
             {
-                var taskResult = await Task.WhenAny(Task.WhenAll(task1, task2, Task.Delay(1000)), timeout);
+                var json = await httpClient.GetStringAsync(ReleaseInfoUrl);
+                var js = new JavaScriptSerializer();
+                var dict = js.Deserialize<Dictionary<string, object>>(json);
+
+                var remoteInfo = new ReleaseInfo
+                {
+                    sw_version = Convert.ToUInt64(dict["sw_version"]),
+                    fw_version = Convert.ToUInt64(dict["fw_version"]),
+                    sw_version_str = dict["sw_version_str"]?.ToString() ?? "",
+                    fw_version_str = dict["fw_version_str"]?.ToString() ?? "",
+                    release_url = dict["release_url"]?.ToString() ?? "",
+                    release_notes_url = dict["release_notes_url"]?.ToString() ?? "",
+                };
+
+                var swVersionStr = Authenticator.Version();
+                var fwVersionStr = FirmwareVersionNumber.Text ?? "";
+
+                var localInfo = new ReleaseInfo
+                {
+                    sw_version = EncodeSwVersion(swVersionStr),
+                    fw_version = EncodeFwVersion(fwVersionStr),
+                    sw_version_str = swVersionStr,
+                    fw_version_str = fwVersionStr,
+                };
+
                 OnUpdateCheckEnd();
-
-                if (taskResult == timeout)
-                {
-                    if (!taskResult.IsCanceled)
-                        ErrorDialog.Show("Error retreiving Info", "Operation timed out.");
-                    return;
-                }
-
-                var status1 = task1.Result;
-                if (status1 != Status.Ok)
-                {
-
-                    this.MyMainWindow.ShowLog("Error retrieving remote release info. Status: " + status1.ToString());
-                    ErrorDialog.Show(status1.ToString(), "Error retrieving remote release info");
-                    return;
-                }
 
                 MyMainWindow.ShowLog("Remote release info:");
                 MyMainWindow.ShowLog($" * host={remoteInfo.sw_version_str}  fw={remoteInfo.fw_version_str}");
-                MyMainWindow.ShowLog($" * fw={remoteInfo.fw_version_str}");
-
-
-                var status2 = task2.Result;
-                if (status2 != Status.Ok)
-                {
-                    this.MyMainWindow.ShowLog("Error retrieving remote local info. Status: " + status2.ToString());
-                    ErrorDialog.Show(status2.ToString(), "Error retrieving local release info");
-                    return;
-                }
-
                 MyMainWindow.ShowLog("Local release info:");
                 MyMainWindow.ShowLog($" * host={localInfo.sw_version_str}  fw={localInfo.fw_version_str}");
-                MyMainWindow.ShowLog($" * fw={localInfo.fw_version_str}");
-
 
                 new UpdateAvailableDialog(localInfo, remoteInfo).ShowDialog();
-
-
             }
-            catch (OperationCanceledException)
-
-            {
-                // Handle cancellation
-                MyMainWindow.ShowLog("Check for updates was canceled.");
-            }
-
             catch (Exception ex)
             {
-
-                MyMainWindow.ShowLog("Error retrieving release info. Exception: " + ex.Message);
-                ErrorDialog.Show("Error retrieving release info", ex.Message);
-            }
-            finally
-            {
                 OnUpdateCheckEnd();
+                MyMainWindow.ShowLog("Error checking for updates: " + ex.Message);
+                ErrorDialog.Show("Error checking for updates", ex.Message);
             }
         }
 
-        private void ValidateMaxSpoofs(object sender, TextCompositionEventArgs e)
+        private void CameraRotation_Click(object sender, RoutedEventArgs e)
         {
-            bool ignore = MaxSpoofs.Text.Length > 3 || Regex.IsMatch(e.Text, "[^0-9]+");
-            e.Handled = ignore;
+            int numRois = NumRoisCombo != null ? Math.Max(1, NumRoisCombo.SelectedIndex + 1) : 1;
+            for (int i = 0; i < numRois; i++)
+                SetRoiTextBoxes(i, GetDefaultRoi());
         }
     }
-
 }
 

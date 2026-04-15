@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "DeviceControllerImpl.h"
 #include "StatusHelper.h"
@@ -38,7 +38,7 @@ DeviceControllerImpl::DeviceControllerImpl(DeviceType device_type) : _deviceType
     {
     case DeviceType::F45x:
         break;
-    case DeviceType::F46x:
+    case DeviceType::F50x:
         break;
     default:
         throw std::invalid_argument("Unknown device type");
@@ -85,15 +85,15 @@ void DeviceControllerImpl::Disconnect()
     _serial.reset();
 }
 
-bool DeviceControllerImpl::Reboot()
+Status DeviceControllerImpl::Reboot()
 {
     if (!_serial)
     {
         LOG_ERROR(LOG_TAG, "Not connected to a serial port");
-        return false;
+        return Status::SerialError;
     }
     auto status = _serial->SendBytes(PacketManager::Commands::reset, strlen(PacketManager::Commands::reset));
-    return (status == PacketManager::SerialStatus::Ok);
+    return ToStatus(status);
 }
 
 Status DeviceControllerImpl::QueryFirmwareVersion(std::string& version)
@@ -380,8 +380,8 @@ Status DeviceControllerImpl::FetchLog(std::string& result)
         constexpr size_t max_result_size = 128 * 1024;
         constexpr size_t reserve_size = 1024;
         char buffer[1] = {0};
-        const std::string start_token = "START_OF_LOG\n";
-        const std::string end_token = "END_OF_LOG\n";
+        const std::string start_token = "START_OF_LOG";
+        const std::string end_token = "END_OF_LOG";
 
         result.reserve(reserve_size);
         bool done = false;
@@ -446,7 +446,7 @@ Status DeviceControllerImpl::FetchLog(std::string& result)
 
 Status DeviceControllerImpl::GetTemperature(float& soc, float& board)
 {
-    if (_deviceType != DeviceType::F46x)
+    if (_deviceType != DeviceType::F50x)
     {
         LOG_ERROR(LOG_TAG, "GetTemperature is not supported for this device type");
         return Status::NotSupported;
@@ -600,6 +600,51 @@ Status DeviceControllerImpl::SetColorGains(int red, int blue)
         LOG_ERROR(LOG_TAG, "Failed sending cm command");
     }
     return ToStatus(send_status);
+}
+
+Status DeviceControllerImpl::QueryBspVer(std::string& bspver)
+{
+    bspver.clear();
+    try
+    {
+        auto status = _serial->SendBytes(PacketManager::Commands::version_info, ::strlen(PacketManager::Commands::version_info));
+        if (status != PacketManager::SerialStatus::Ok)
+        {
+            LOG_ERROR(LOG_TAG, "Failed sending bspver command");
+            return ToStatus(status);
+        }
+
+        // receive data until no more is available
+        constexpr size_t max_buffer_size = 1024;
+        char buffer[max_buffer_size] = {0};
+        for (size_t i = 0; i < max_buffer_size - 1; ++i)
+        {
+            auto status = _serial->RecvBytes(&buffer[i], 1);
+
+            // timeout is legal for the final byte, because we do not know the expected data size
+            if (status == PacketManager::SerialStatus::RecvTimeout)
+                break;
+
+            // other error are still not accepted
+            if (status != PacketManager::SerialStatus::Ok)
+            {
+                LOG_ERROR(LOG_TAG, "Failed reading version data");
+                return ToStatus(status);
+            }
+        }
+        bspver.assign(buffer);
+        return Status::Ok;
+    }
+    catch (const std::exception& ex)
+    {
+        LOG_EXCEPTION(LOG_TAG, ex);
+        return Status::Error;
+    }
+    catch (...)
+    {
+        LOG_ERROR(LOG_TAG, "Unknown exception in QueryBspVer");
+        return Status::Error;
+    }
 }
 
 

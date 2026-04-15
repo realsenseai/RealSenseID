@@ -1,30 +1,36 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/Preview.h"
 #include "RealSenseID/FaceAuthenticator.h"
+#include "RealSenseID/DiscoverDevices.h"
+#ifdef RSID_SECURE
+#include "secure_mode_helper.h"
+#endif
 #include <chrono>
 #include <thread>
 #include <iostream>
 
-#ifdef _WIN32
-static const char* CONNECTION_STRING = "COM72";
-#elif LINUX
-static const char* CONNECTION_STRING = "/dev/ttyACM0";
-#endif
-
 class EmptyAuthenticationCallback : public RealSenseID::AuthenticationCallback
 {
 public:
-    void OnResult(const RealSenseID::AuthenticateStatus status, const char* user_id) override
+    void OnResult(const RealSenseID::AuthenticateStatus status, const char* user_id, short score) override
     {
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
+    {
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+    }
+
+    void OnPersonDetected(const std::vector<RealSenseID::PersonRect>& persons, unsigned int ts) override
     {
     }
 };
@@ -37,7 +43,7 @@ public:
         std::cout << "preview -> " << image.width << "x" << image.height << " (" << image.size << "B)\n";
     }
 
-    void OnSnapshotImageReady(const RealSenseID::Image image)
+    void OnSnapshotImageReady(const RealSenseID::Image& image)
     {
         std::cout << "snapshot -> " << image.width << "x" << image.height << " (" << image.size << "B)\n";
     }
@@ -45,13 +51,28 @@ public:
 
 int main()
 {
+    auto devices = RealSenseID::DiscoverDevices();
+    if (devices.empty())
+    {
+        std::cout << "No device detected" << std::endl;
+        return 1;
+    }
+    auto& device = devices.front();
+    std::cout << "Using device on port " << device.serialPort << std::endl;
+
     RealSenseID::PreviewConfig preview_config;
+    preview_config.cameraNumber = device.cameraNumber;
+    preview_config.deviceType = device.deviceType;
     RealSenseID::Preview preview(preview_config);
     PreviewSampleCallback preview_callback;
 
-    auto device_type = RealSenseID::DeviceType::F45x; // or F46x for f46x devices, or use DiscoverDeviceType(..) if not sure
-    RealSenseID::FaceAuthenticator authenticator(device_type);
-    auto status = authenticator.Connect({CONNECTION_STRING});
+    RealSenseID::Samples::SignHelper secure_helper;
+#ifdef RSID_SECURE
+    RealSenseID::FaceAuthenticator authenticator(&secure_helper, device.deviceType);
+#else // RSID_SECURE
+    RealSenseID::FaceAuthenticator authenticator(device.deviceType);
+#endif
+    auto status = authenticator.Connect({device.serialPort});
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "connection failed!\n";
