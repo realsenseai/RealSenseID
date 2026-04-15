@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -98,7 +98,8 @@ void init_preview(pybind11::module& m)
         .def_readwrite("camera_number", &PreviewConfig::cameraNumber)
         .def_readwrite("preview_mode", &PreviewConfig::previewMode)
         .def_readwrite("portrait_mode", &PreviewConfig::portraitMode)
-        .def_readwrite("rotate_raw", &PreviewConfig::rotateRaw);
+        .def_readwrite("rotate_raw", &PreviewConfig::rotateRaw)
+        .def_readwrite("skip_decode", &PreviewConfig::skip_decode);
 
     py::class_<ImageMetadata>(m, "ImageMetadata")
         .def(py::init<>())

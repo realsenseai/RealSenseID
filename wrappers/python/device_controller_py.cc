@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
@@ -36,7 +36,8 @@ void init_device_controller(pybind11::module& m)
             py::arg("port").none(false), py::call_guard<py::gil_scoped_release>())
 
         .def("disconnect", &DeviceController::Disconnect, py::call_guard<py::gil_scoped_release>())
-        .def("reboot", &DeviceController::Reboot, py::call_guard<py::gil_scoped_release>())
+        .def(
+            "reboot", [](DeviceController& self) { RSID_THROW_ON_ERROR(self.Reboot()); }, py::call_guard<py::gil_scoped_release>())
         .def(
             "query_firmware_version",
             [](DeviceController& self) {
@@ -74,5 +75,13 @@ void init_device_controller(pybind11::module& m)
                 RSID_THROW_ON_ERROR(self.GetColorGains(red, blue));
                 return std::make_tuple(red, blue);
             },
-            py::doc("Get device color gains as a tuple (red,blue)"), py::call_guard<py::gil_scoped_release>());
+            py::doc("Get device color gains as a tuple (red,blue)"), py::call_guard<py::gil_scoped_release>())
+        .def(
+            "query_bspver",
+            [](DeviceController& self) {
+                std::string bspver;
+                RSID_THROW_ON_ERROR(self.QueryBspVer(bspver));
+                return bspver;
+            },
+            py::call_guard<py::gil_scoped_release>());
 }

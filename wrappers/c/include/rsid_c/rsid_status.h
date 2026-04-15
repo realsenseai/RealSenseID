@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -13,7 +13,7 @@ extern "C"
     {
         RSID_DeviceType_Unknown,
         RSID_DeviceType_F45x,
-        RSID_DeviceType_F46x
+        RSID_DeviceType_F50x
     } rsid_device_type;
 
 
@@ -50,6 +50,13 @@ extern "C"
         RSID_AlgoMode_RecognitionOnly = 2 // configures device to run recognition only without AS.
     } rsid_algo_mode_type;
 
+
+    typedef enum
+    {
+        RSID_FaceSelection_Single = 0, // default, run authentication on closest face
+        RSID_FaceSelection_All = 1     // run authentication on all (up to 5) detected faces
+    } rsid_face_selection_policy;
+
     typedef enum
     {
         RSID_FacePolicy_None = 0, // default
@@ -57,6 +64,19 @@ extern "C"
         RSID_FacePolicy_Strict = 2
     } rsid_frontal_face_policy_type;
 
+    typedef enum
+    {
+        RSID_PersonMotionMode_Static = 0, // default
+        RSID_PersonMotionMode_Walkthrough = 1
+    } rsid_person_motion_mode_type;
+
+    typedef enum
+    {
+        RSID_DistanceLimit_NoLimit = 0,
+        RSID_DistanceLimit_Short = 1,
+        RSID_DistanceLimit_Medium = 2,
+        RSID_DistanceLimit_Long = 3
+    } rsid_distance_limit_type;
 
     typedef enum
     {
@@ -67,9 +87,10 @@ extern "C"
 
     typedef enum
     {
-        RISD_DumpNone = 0,
+        RSID_DumpNone = 0,
         RSID_DumpCroppedFace = 1,
         RSID_DumpFullFrame = 2,
+        RSID_DumpDubug = 3,
     } rsid_dump_mode;
 
     typedef enum
@@ -83,7 +104,9 @@ extern "C"
         RSID_TooManySpoofs,
         RSID_NotSupported,
         RSID_DatabaseFull,
-        RSID_DuplicateUserId
+        RSID_DuplicateUserId,
+        RSID_DuplicateFaceprints,
+        RSID_InvalidSettings
     } rsid_status;
 
     typedef enum
@@ -91,6 +114,10 @@ extern "C"
         RSID_Auth_Success,
         RSID_Auth_NoFaceDetected,
         RSID_Auth_FaceDetected,
+        RSID_Auth_PersonNotFound,
+        RSID_Auth_PersonFound,
+        RSID_Auth_BarcodeNotFound,
+        RSID_Auth_BarcodeFound,
         RSID_Auth_LedFlowSuccess,
         RSID_Auth_FaceIsTooFarToTheTop,
         RSID_Auth_FaceIsTooFarToTheBottom,
@@ -103,16 +130,18 @@ extern "C"
         RSID_Auth_FaceIsNotFrontal,
         RSID_Auth_CameraStarted,
         RSID_Auth_CameraStopped,
-        RSID_Auth_MaskDetectedInHighSecurity,
         RSID_Auth_Spoof,
         RSID_Auth_Forbidden,
         RSID_Auth_DeviceError,
         RSID_Auth_Failure,
         RSID_Auth_TooManySpoofs,
         RSID_Auth_InvalidFeatures,
-        RSID_Auth_AmbiguiousFace,
+        RSID_Auth_AmbiguousFace,
         RSID_Auth_Sunglasses = 50,
-        RSID_Auth_CovidMask,
+        RSID_Auth_MedicalMask,
+        RSID_Auth_FaceTooFar = 61,
+        RSID_Auth_CalcDistanceFailure = 62,
+        RSID_Auth_FaceTooClose = 63,
         RSID_Auth_Serial_Ok = RSID_Ok,
         RSID_Auth_Serial_Error,
         RSID_Auth_Serial_SerialError,
@@ -134,6 +163,10 @@ extern "C"
         RSID_Enroll_Success,
         RSID_Enroll_NoFaceDetected,
         RSID_Enroll_FaceDetected,
+        RSID_Enroll_PersonNotFound,
+        RSID_Enroll_PersonFound,
+        RSID_Enroll_BarcodeNotFound,
+        RSID_Enroll_BarcodeFound,
         RSID_Enroll_LedFlowSuccess,
         RSID_Enroll_FaceIsTooFarToTheTop,
         RSID_Enroll_FaceIsTooFarToTheBottom,
@@ -149,12 +182,13 @@ extern "C"
         RSID_Enroll_MultipleFacesDetected,
         RSID_Enroll_Failure,
         RSID_Enroll_DeviceError,
-        RSID_EnrollWithMaskIsForbidden,
         RSID_Enroll_Spoof,
         RSID_Enroll_InvalidFeatures,
-        RSID_Enroll_AmbiguiousFace,
+        RSID_Enroll_AmbiguousFace,
         RSID_Enroll_Sunglasses = 50,
-        RSID_Enroll_CovidMask,
+        RSID_Enroll_MedicalMask,
+        // Distance
+        RSID_Enroll_FaceTooClose = 63,
         RSID_Enroll_Serial_Ok = RSID_Ok,
         RSID_Enroll_Serial_Error,
         RSID_Enroll_Serial_SerialError,
@@ -165,6 +199,7 @@ extern "C"
         RSID_Enroll_NotSupported,
         RSID_Enroll_DatabaseFull,
         RSID_Enroll_DuplicateUserId,
+        RSID_Enroll_DuplicateFaceprints,
         RSID_Enroll_Spoof_2D = 120,
         RSID_Enroll_Spoof_3D,
         RSID_Enroll_Spoof_LR,
@@ -199,7 +234,7 @@ extern "C"
 
     typedef enum
     {
-        RSID_Continous,
+        RSID_Continuous,
         RSID_Opfw_First,
         RSID_Require_Intermediate_Fw,
         RSID_Not_Allowed

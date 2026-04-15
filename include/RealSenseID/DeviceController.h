@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -42,11 +42,12 @@ public:
     void Disconnect();
 
     /**
-     * Reboot controlled device.
+     * Send reboot command to device.
      *
-     * @return True if reboot done successfully and false otherwise.
+     * @return Status::Ok if reboot command sent to the device.
+     * @Note After reboot, wait feaw seconds before trying to reconnect.
      */
-    bool Reboot();
+    Status Reboot();
 
     /**
      * Retrieve device type and firmware version information.
@@ -106,6 +107,12 @@ public:
      * @return SerialStatus::Success on success.
      */
     Status SetColorGains(int red, int blue);
+
+    /**
+     * Get bspver info
+     * @return SerialStatus::Success on success
+     */
+    Status QueryBspVer(std::string& bspver);
 
 private:
     RealSenseID::DeviceControllerImpl* _impl = nullptr;

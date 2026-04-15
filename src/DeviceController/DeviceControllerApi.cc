@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/DeviceController.h"
 #include "DeviceControllerImpl.h"
@@ -52,7 +52,7 @@ void DeviceController::Disconnect()
     _impl->Disconnect();
 }
 
-bool DeviceController::Reboot()
+Status DeviceController::Reboot()
 {
     return _impl->Reboot();
 }
@@ -95,6 +95,11 @@ Status DeviceController::GetColorGains(int& red, int& blue)
 Status DeviceController::SetColorGains(int red, int blue)
 {
     return _impl->SetColorGains(red, blue);
+}
+
+Status DeviceController::QueryBspVer(std::string& bspver)
+{
+    return _impl->QueryBspVer(bspver);
 }
 
 } // namespace RealSenseID

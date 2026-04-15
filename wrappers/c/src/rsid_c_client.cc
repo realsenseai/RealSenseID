@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/SerialConfig.h"
 #include "RealSenseID/DiscoverDevices.h"
@@ -36,7 +36,8 @@ using RealSenseID::FaVectorFlagsEnum;
 using RealSenseID::MatchElement;
 using RealSenseID::ThresholdsConfidenceEnum;
 
-constexpr unsigned int MAX_USERS = 5000;
+constexpr unsigned int NUM_LANDMARKS = 5;
+constexpr unsigned int MAX_USERS = 10000;
 
 // copy FaceRects to give c array of rsid_face_rects and return number the faces copied
 size_t to_c_faces(const std::vector<RealSenseID::FaceRect>& faces, rsid_face_rect target[], size_t target_size)
@@ -50,6 +51,22 @@ size_t to_c_faces(const std::vector<RealSenseID::FaceRect>& faces, rsid_face_rec
     return i;
 }
 
+// copy FaceLandmarks to give c array of rsid_face_landmarks and return number the faces copied
+size_t to_c_landmarks(const std::vector<RealSenseID::FaceLandmarks>& landmarks, rsid_face_landmarks target[], size_t target_size)
+{
+    size_t i, l;
+    for (i = 0; i < landmarks.size() && i < target_size; i++)
+    {
+        const auto& lms = landmarks[i];
+        for (l = 0; l < NUM_LANDMARKS; l++)
+        {
+            target[i].lm_x[l] = lms.lm_x[l];
+            target[i].lm_y[l] = lms.lm_y[l];
+        }
+    }
+    return i;
+}
+
 // helper to convert the face vector to c array of rsid_face_rect structs and call the c callback
 void handle_face_detected_clbk(rsid_face_detected_clbk user_clbk, const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts,
                                void* ctx)
@@ -59,6 +76,59 @@ void handle_face_detected_clbk(rsid_face_detected_clbk user_clbk, const std::vec
         rsid_face_rect c_faces[RSID_MAX_FACES];
         auto n_faces = to_c_faces(faces, c_faces, RSID_MAX_FACES);
         user_clbk(c_faces, n_faces, ts, ctx);
+    }
+}
+
+// helper to convert the landmarks vector to c array of rsid_face_landmarks structs and call the c callback
+void handle_landmarks_detected_clbk(rsid_landmarks_detected_clbk user_clbk, const std::vector<RealSenseID::FaceLandmarks>& landmarks,
+                                    const unsigned int ts, void* ctx)
+{
+    if (user_clbk != nullptr && !landmarks.empty())
+    {
+        rsid_face_landmarks c_landmarks[RSID_MAX_FACES];
+        auto n_faces = to_c_landmarks(landmarks, c_landmarks, RSID_MAX_FACES);
+        user_clbk(c_landmarks, n_faces, ts, ctx);
+    }
+}
+
+// copy PersonRects to given c array of rsid_person_rects and return number the persons copied
+size_t to_c_persons(const std::vector<RealSenseID::PersonRect>& persons, rsid_person_rect targets[], size_t target_size)
+{
+    size_t i;
+    for (i = 0; i < persons.size() && i < target_size; i++)
+    {
+        const auto& person = persons[i];
+        auto& target = targets[i];
+        target = {person.x, person.y, person.w, person.h, person.id, person.distance};
+        target.body_part = static_cast<rsid_body_part_type>(person.body_part);
+    }
+    return i;
+}
+
+// copy poses to given c array of rsid_pose and return number the poses copied
+size_t to_c_poses(const std::vector<RealSenseID::PersonPose>& poses, rsid_person_pose targets[], size_t target_size)
+{
+    size_t i;
+    for (i = 0; i < poses.size() && i < target_size; i++)
+    {
+        const auto& pose = poses[i];
+        auto& target = targets[i];
+        target.x = pose.x;
+        target.y = pose.y;
+        target.w = pose.w;
+        target.h = pose.h;
+        std::copy(std::begin(pose.lm_x), std::end(pose.lm_x), std::begin(target.lm_x));
+        std::copy(std::begin(pose.lm_y), std::end(pose.lm_y), std::begin(target.lm_y));
+        std::copy(std::begin(pose.lm_score), std::end(pose.lm_score), std::begin(target.lm_score));
+    }
+    return i;
+}
+
+void handle_face_distances_clbk(rsid_face_distances_clbk user_clbk, const std::vector<double>& distances, unsigned int ts, void* ctx)
+{
+    if (user_clbk != nullptr && !distances.empty())
+    {
+        user_clbk(distances.data(), distances.size(), ts, ctx);
     }
 }
 
@@ -83,15 +153,27 @@ public:
             _enroll_args.progress_clbk(static_cast<rsid_face_pose>(pose), _enroll_args.ctx);
     }
 
-    void OnHint(const RealSenseID::EnrollStatus hint) override
+    void OnHint(const RealSenseID::EnrollStatus hint, float frameScore) override
     {
         if (_enroll_args.hint_clbk)
-            _enroll_args.hint_clbk(static_cast<rsid_enroll_status>(hint), _enroll_args.ctx);
+            _enroll_args.hint_clbk(static_cast<rsid_enroll_status>(hint), frameScore, _enroll_args.ctx);
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
     {
         handle_face_detected_clbk(_enroll_args.face_detected_clbk, faces, ts, _enroll_args.ctx);
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        handle_landmarks_detected_clbk(_enroll_args.landmarks_detected_clbk, landmarks, ts, _enroll_args.ctx);
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        if (_enroll_args.face_cropped_image_clbk)
+            _enroll_args.face_cropped_image_clbk(buffer, width, height, ts, _enroll_args.ctx);
     }
 };
 
@@ -104,21 +186,38 @@ public:
     {
     }
 
-    void OnResult(const RealSenseID::AuthenticateStatus status, const char* userId) override
+    void OnResult(const RealSenseID::AuthenticateStatus status, const char* userId, short score) override
     {
         if (_auth_args.result_clbk)
-            _auth_args.result_clbk(static_cast<rsid_auth_status>(status), (const char*)userId, _auth_args.ctx);
+            _auth_args.result_clbk(static_cast<rsid_auth_status>(status), (const char*)userId, score, _auth_args.ctx);
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
         if (_auth_args.hint_clbk)
-            _auth_args.hint_clbk(static_cast<rsid_auth_status>(hint), _auth_args.ctx);
+            _auth_args.hint_clbk(static_cast<rsid_auth_status>(hint), frameScore, _auth_args.ctx);
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
     {
         handle_face_detected_clbk(_auth_args.face_detected_clbk, faces, ts, _auth_args.ctx);
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        handle_landmarks_detected_clbk(_auth_args.landmarks_detected_clbk, landmarks, ts, _auth_args.ctx);
+    }
+
+    void OnFaceDistances(const std::vector<double>& distances, const unsigned int ts) override
+    {
+        handle_face_distances_clbk(_auth_args.face_distances_clbk, distances, ts, _auth_args.ctx);
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        if (_auth_args.face_cropped_image_clbk)
+            _auth_args.face_cropped_image_clbk(buffer, width, height, ts, _auth_args.ctx);
     }
 };
 
@@ -146,9 +245,6 @@ void copy_to_c_faceprints_ple_dble_for_enroll(const RealSenseID::ExtractedFacepr
     static_assert(sizeof(c_faceprints->enrollmentDescriptor) == sizeof(faceprints.data.featuresVector),
                   "enrollment faceprints sizes does not match");
     ::memcpy(c_faceprints->enrollmentDescriptor, faceprints.data.featuresVector, sizeof(faceprints.data.featuresVector));
-
-    // mark the with-mask vector as not set
-    c_faceprints->adaptiveDescriptorWithMask[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] = FaVectorFlagsEnum::VecFlagNotSet;
 }
 
 
@@ -162,11 +258,6 @@ void copy_to_c_faceprints_dble_dble(const RealSenseID::Faceprints& faceprints, r
                   "adaptive faceprints (without mask) sizes does not match");
     ::memcpy(c_faceprints->adaptiveDescriptorWithoutMask, faceprints.data.adaptiveDescriptorWithoutMask,
              sizeof(faceprints.data.adaptiveDescriptorWithoutMask));
-
-    static_assert(sizeof(c_faceprints->adaptiveDescriptorWithMask) == sizeof(faceprints.data.adaptiveDescriptorWithMask),
-                  "adaptive faceprints (with mask) sizes does not match");
-    ::memcpy(c_faceprints->adaptiveDescriptorWithMask, faceprints.data.adaptiveDescriptorWithMask,
-             sizeof(faceprints.data.adaptiveDescriptorWithMask));
 
     static_assert(sizeof(c_faceprints->enrollmentDescriptor) == sizeof(faceprints.data.enrollmentDescriptor),
                   "enrollment faceprints sizes does not match");
@@ -183,11 +274,6 @@ void copy_to_cpp_faceprints_dble_dble(const rsid_faceprints_t* c_faceprints, Rea
                   "adaptive faceprints sizes (without mask) does not match");
     ::memcpy(faceprints.data.adaptiveDescriptorWithoutMask, c_faceprints->adaptiveDescriptorWithoutMask,
              sizeof(c_faceprints->adaptiveDescriptorWithoutMask));
-
-    static_assert(sizeof(c_faceprints->adaptiveDescriptorWithMask) == sizeof(faceprints.data.adaptiveDescriptorWithMask),
-                  "adaptive faceprints sizes (with mask) does not match");
-    ::memcpy(faceprints.data.adaptiveDescriptorWithMask, c_faceprints->adaptiveDescriptorWithMask,
-             sizeof(c_faceprints->adaptiveDescriptorWithMask));
 
     static_assert(sizeof(c_faceprints->enrollmentDescriptor) == sizeof(faceprints.data.enrollmentDescriptor),
                   "enrollment faceprints sizes does not match");
@@ -219,15 +305,32 @@ public:
         }
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
         if (_faceprints_ext_args.hint_clbk)
-            _faceprints_ext_args.hint_clbk(static_cast<rsid_auth_status>(hint), _faceprints_ext_args.ctx);
+            _faceprints_ext_args.hint_clbk(static_cast<rsid_auth_status>(hint), 0.0, _faceprints_ext_args.ctx);
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
     {
         handle_face_detected_clbk(_faceprints_ext_args.face_detected_clbk, faces, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        handle_landmarks_detected_clbk(_faceprints_ext_args.landmarks_detected_clbk, landmarks, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnFaceDistances(const std::vector<double>& distances, const unsigned int ts) override
+    {
+        handle_face_distances_clbk(_faceprints_ext_args.face_distances_clbk, distances, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        if (_faceprints_ext_args.face_cropped_image_clbk)
+            _faceprints_ext_args.face_cropped_image_clbk(buffer, width, height, ts, _faceprints_ext_args.ctx);
     }
 };
 
@@ -256,15 +359,32 @@ public:
         }
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
         if (_faceprints_ext_args.hint_clbk)
-            _faceprints_ext_args.hint_clbk(static_cast<rsid_auth_status>(hint), _faceprints_ext_args.ctx);
+            _faceprints_ext_args.hint_clbk(static_cast<rsid_auth_status>(hint), 0, _faceprints_ext_args.ctx);
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
     {
         handle_face_detected_clbk(_faceprints_ext_args.face_detected_clbk, faces, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        handle_landmarks_detected_clbk(_faceprints_ext_args.landmarks_detected_clbk, landmarks, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnFaceDistances(const std::vector<double>& distances, const unsigned int ts) override
+    {
+        handle_face_distances_clbk(_faceprints_ext_args.face_distances_clbk, distances, ts, _faceprints_ext_args.ctx);
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        if (_faceprints_ext_args.face_cropped_image_clbk)
+            _faceprints_ext_args.face_cropped_image_clbk(buffer, width, height, ts, _faceprints_ext_args.ctx);
     }
 };
 
@@ -300,15 +420,27 @@ public:
             _enroll_ext_args.progress_clbk(static_cast<rsid_face_pose>(pose), _enroll_ext_args.ctx);
     }
 
-    void OnHint(const RealSenseID::EnrollStatus hint) override
+    void OnHint(const RealSenseID::EnrollStatus hint, float frameScore) override
     {
         if (_enroll_ext_args.hint_clbk)
-            _enroll_ext_args.hint_clbk(static_cast<rsid_enroll_status>(hint), _enroll_ext_args.ctx);
+            _enroll_ext_args.hint_clbk(static_cast<rsid_enroll_status>(hint), frameScore, _enroll_ext_args.ctx);
     }
 
     void OnFaceDetected(const std::vector<RealSenseID::FaceRect>& faces, const unsigned int ts) override
     {
         handle_face_detected_clbk(_enroll_ext_args.face_detected_clbk, faces, ts, _enroll_ext_args.ctx);
+    }
+
+    void OnLandmarksDetected(const std::vector<RealSenseID::FaceLandmarks>& landmarks, const unsigned int ts) override
+    {
+        handle_landmarks_detected_clbk(_enroll_ext_args.landmarks_detected_clbk, landmarks, ts, _enroll_ext_args.ctx);
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        if (_enroll_ext_args.face_cropped_image_clbk)
+            _enroll_ext_args.face_cropped_image_clbk(buffer, width, height, ts, _enroll_ext_args.ctx);
     }
 };
 
@@ -330,14 +462,18 @@ public:
     // Return value: true on success, false otherwise.
     bool Sign(const unsigned char* buffer, const unsigned int length, unsigned char* outSig) override
     {
-        return _user_clbk.sign_clbk(buffer, length, outSig, _user_clbk.ctx) != 0;
+        if (_user_clbk.sign_clbk)
+            return _user_clbk.sign_clbk(buffer, length, outSig, _user_clbk.ctx) != 0;
+        return false;
     }
 
     // Called by the lib to verify the buffer and the given signature.
     // Return value: true on verify success, false otherwise.
     bool Verify(const unsigned char* buffer, const unsigned int bufferLen, const unsigned char* sig, const unsigned int sigLen) override
     {
-        return _user_clbk.verify_clbk(buffer, bufferLen, sig, sigLen, _user_clbk.ctx) != 0;
+        if (_user_clbk.verify_clbk)
+            return _user_clbk.verify_clbk(buffer, bufferLen, sig, sigLen, _user_clbk.ctx) != 0;
+        return false;
     }
 };
 
@@ -403,12 +539,33 @@ RealSenseID::DeviceConfig device_config_from_c_struct(const rsid_device_config* 
     config.camera_rotation = static_cast<RealSenseID::DeviceConfig::CameraRotation>(device_config->camera_rotation);
     config.security_level = static_cast<RealSenseID::DeviceConfig::SecurityLevel>(device_config->security_level);
     config.algo_flow = static_cast<RealSenseID::DeviceConfig::AlgoFlow>(device_config->algo_mode);
+    config.face_selection_policy = static_cast<RealSenseID::DeviceConfig::FaceSelectionPolicy>(device_config->face_selection_policy);
     config.dump_mode = static_cast<RealSenseID::DeviceConfig::DumpMode>(device_config->dump_mode);
     config.matcher_confidence_level =
         static_cast<RealSenseID::DeviceConfig::MatcherConfidenceLevel>(device_config->matcher_confidence_level);
     config.max_spoofs = device_config->max_spoofs;
+    config.match_thresh = device_config->match_thresh;
+    config.rect_enable = device_config->rect_enable;
+    config.landmarks_enable = device_config->landmarks_enable;
     config.gpio_auth_toggling = device_config->gpio_auth_toggling;
     config.frontal_face_policy = static_cast<RealSenseID::DeviceConfig::FrontalFacePolicy>(device_config->frontal_face_policy);
+    config.person_motion_mode = static_cast<RealSenseID::DeviceConfig::PersonMotionMode>(device_config->person_motion_mode);
+    unsigned char n = device_config->num_rois;
+    if (n == 0 || n > RealSenseID::DeviceConfig::MAX_ROIS)
+        n = 1;
+    config.num_rois = n;
+    for (unsigned char ri = 0; ri < n; ri++)
+    {
+        config.detection_rois[ri].x = device_config->rois[ri].x;
+        config.detection_rois[ri].y = device_config->rois[ri].y;
+        config.detection_rois[ri].width = device_config->rois[ri].width;
+        config.detection_rois[ri].height = device_config->rois[ri].height;
+    }
+    config.manual_exposure_time_us = device_config->manual_exposure_time_us;
+    config.manual_gain = device_config->manual_gain;
+    config.manual_gain = device_config->manual_gain;
+    config.distance_limit = static_cast<RealSenseID::DeviceConfig::DistanceLimit>(device_config->distance_limit);
+    config.distance_enabled = device_config->distance_enabled ? true : false;
     return config;
 }
 
@@ -453,9 +610,9 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F45x(rsid_signature_clb
     return create_authenticator_impl(signature_clbk, RSID_DeviceType_F45x);
 }
 
-RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x(rsid_signature_clbk* signature_clbk)
+RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(rsid_signature_clbk* signature_clbk)
 {
-    return create_authenticator_impl(signature_clbk, RSID_DeviceType_F46x);
+    return create_authenticator_impl(signature_clbk, RSID_DeviceType_F50x);
 }
 
 RSID_C_API rsid_authenticator* rsid_create_authenticator(rsid_signature_clbk* signature_clbk)
@@ -500,9 +657,9 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F45x()
     return create_authenticator_impl(RSID_DeviceType_F45x);
 }
 
-RSID_C_API rsid_authenticator* rsid_create_authenticator_F46x()
+RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x()
 {
-    return create_authenticator_impl(RSID_DeviceType_F46x);
+    return create_authenticator_impl(RSID_DeviceType_F50x);
 }
 
 
@@ -525,11 +682,29 @@ rsid_status rsid_query_device_config(rsid_authenticator* authenticator, rsid_dev
     device_config->camera_rotation = static_cast<rsid_camera_rotation_type>(config.camera_rotation);
     device_config->security_level = static_cast<rsid_security_level_type>(config.security_level);
     device_config->algo_mode = static_cast<rsid_algo_mode_type>(config.algo_flow);
+    device_config->face_selection_policy = static_cast<rsid_face_selection_policy>(config.face_selection_policy);
     device_config->dump_mode = static_cast<rsid_dump_mode>(config.dump_mode);
     device_config->matcher_confidence_level = static_cast<rsid_matcher_confidence_level_type>(config.matcher_confidence_level);
     device_config->max_spoofs = config.max_spoofs;
+    device_config->match_thresh = config.match_thresh;
+    device_config->rect_enable = config.rect_enable;
+    device_config->landmarks_enable = config.landmarks_enable;
     device_config->gpio_auth_toggling = config.gpio_auth_toggling;
     device_config->frontal_face_policy = static_cast<rsid_frontal_face_policy_type>(config.frontal_face_policy);
+    device_config->person_motion_mode = static_cast<rsid_person_motion_mode_type>(config.person_motion_mode);
+    device_config->num_rois = config.num_rois;
+    for (unsigned char ri = 0; ri < config.num_rois && ri < RealSenseID::DeviceConfig::MAX_ROIS; ri++)
+    {
+        device_config->rois[ri].x = config.detection_rois[ri].x;
+        device_config->rois[ri].y = config.detection_rois[ri].y;
+        device_config->rois[ri].width = config.detection_rois[ri].width;
+        device_config->rois[ri].height = config.detection_rois[ri].height;
+    }
+    device_config->manual_exposure_time_us = config.manual_exposure_time_us;
+    device_config->manual_gain = config.manual_gain;
+    device_config->manual_gain = config.manual_gain;
+    device_config->distance_limit = static_cast<rsid_distance_limit_type>(config.distance_limit);
+    device_config->distance_enabled = config.distance_enabled ? 1 : 0;
     return static_cast<rsid_status>(status);
 }
 
@@ -614,14 +789,67 @@ rsid_enroll_status rsid_enroll_image(rsid_authenticator* authenticator, const ch
     return static_cast<rsid_enroll_status>(status);
 }
 
-rsid_enroll_status rsid_enroll_cropped_image(rsid_authenticator* authenticator, const char* user_id, const unsigned char* buffer)
+
+#ifdef RSID_ONE2ONE
+rsid_enroll_status rsid_enroll_image_one_to_one(rsid_authenticator* authenticator, const char* user_id, const unsigned char* buffer,
+                                                unsigned width, unsigned height)
 {
     auto* auth_impl = get_auth_impl(authenticator);
-    RealSenseID::EnrollStatus status;
-    status = auth_impl->EnrollCroppedFaceImage(user_id, buffer);
-
+    auto status = auth_impl->EnrollImageOneToOne(user_id, buffer, width, height);
     return static_cast<rsid_enroll_status>(status);
 }
+
+rsid_status rsid_authenticate_one_to_one(rsid_authenticator* authenticator, const rsid_auth_args* args)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    AuthClbk authCallback(*args);
+    auto status = auth_impl->AuthenticateOneToOne(authCallback);
+    return static_cast<rsid_status>(status);
+}
+
+rsid_auth_status rsid_authenticate_image_one_to_one(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width,
+                                                    unsigned height, char* user_id, short* score)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    std::string userID;
+    auto status = auth_impl->AuthenticateImageOneToOne(buffer, width, height, userID, *score);
+    if (userID.length() >= RealSenseID::MAX_USERID_LENGTH)
+        return rsid_auth_status::RSID_Auth_Failure;
+
+    ::strncpy(user_id, userID.c_str(), userID.length());
+    return static_cast<rsid_auth_status>(status);
+}
+
+rsid_status rsid_extract_faceprints_on_host(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width, unsigned height,
+                                            rsid_extracted_faceprints_t* c_faceprints)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    RealSenseID::ExtractedFaceprints faceprints;
+    auto status = auth_impl->ExtractFaceprintsOnHost(buffer, width, height, &faceprints);
+    if (status == RealSenseID::Status::Ok)
+    {
+        copy_to_c_faceprints_ple_ple(faceprints, c_faceprints);
+    }
+    return static_cast<rsid_status>(status);
+}
+RSID_C_API rsid_status rsid_detect_face(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width, unsigned height,
+                                        rsid_face_rect* face_rect)
+{
+    if (buffer == nullptr || face_rect == nullptr)
+    {
+        return static_cast<rsid_status>(RealSenseID::Status::Error);
+    }
+
+    auto* auth_impl = get_auth_impl(authenticator);
+    RealSenseID::FaceRect result;
+    auto status = auth_impl->DetectFace(buffer, width, height, result);
+    face_rect->x = static_cast<uint32_t>(result.x);
+    face_rect->y = static_cast<uint32_t>(result.y);
+    face_rect->w = static_cast<uint32_t>(result.w);
+    face_rect->h = static_cast<uint32_t>(result.h);
+    return static_cast<rsid_status>(status);
+}
+#endif // RSID_ONE2ONE
 
 rsid_status rsid_authenticate(rsid_authenticator* authenticator, const rsid_auth_args* args)
 {
@@ -641,11 +869,6 @@ static RealSenseID::Faceprints convert_to_cpp_faceprints_dble(const rsid_facepri
                   "updated faceprints (without mask) sizes does not match");
     ::memcpy(&faceprints.data.adaptiveDescriptorWithoutMask[0], &rsid_faceprints_instance->adaptiveDescriptorWithoutMask[0],
              sizeof(faceprints.data.adaptiveDescriptorWithoutMask));
-
-    static_assert(sizeof(faceprints.data.adaptiveDescriptorWithMask) == sizeof(rsid_faceprints_instance->adaptiveDescriptorWithMask),
-                  "updated faceprints (with mask) sizes does not match");
-    ::memcpy(&faceprints.data.adaptiveDescriptorWithMask[0], &rsid_faceprints_instance->adaptiveDescriptorWithMask[0],
-             sizeof(faceprints.data.adaptiveDescriptorWithMask));
 
     static_assert(sizeof(faceprints.data.enrollmentDescriptor) == sizeof(rsid_faceprints_instance->enrollmentDescriptor),
                   "enrollment faceprints sizes does not match");
@@ -688,14 +911,7 @@ static RealSenseID::MatchElement convert_to_cpp_faceprints_match_element(rsid_fa
                   "matched faceprints sizes does not match");
     ::memcpy(&faceprints.data.featuresVector[0], &rsid_faceprints_instance->featuresVector[0], sizeof(faceprints.data.featuresVector));
 
-    auto vecFlags = static_cast<int32_t>(rsid_faceprints_instance->featuresVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS]);
-    int32_t opFlags = FaOperationFlagsEnum::OpFlagAuthWithoutMask;
-
-    if (vecFlags == FaVectorFlagsEnum::VecFlagValidWithMask)
-    {
-        opFlags = FaOperationFlagsEnum::OpFlagAuthWithMask;
-    }
-    faceprints.data.flags = opFlags;
+    faceprints.data.flags = FaOperationFlagsEnum::OpFlagAuthWithoutMask;
 
     return faceprints;
 }
@@ -713,7 +929,6 @@ rsid_status rsid_extract_faceprints_for_auth(rsid_authenticator* authenticator, 
     auto* auth_impl = get_auth_impl(authenticator);
     AuthFaceprintsExtClbk auth_callback(*args);
     auto status = auth_impl->ExtractFaceprintsForAuth(auth_callback);
-    // TODO: verify why the average faceprint is a bit different compared to the one in FAImpl
     return static_cast<rsid_status>(status);
 }
 
@@ -756,13 +971,6 @@ rsid_match_result rsid_match_faceprints(rsid_authenticator* authenticator, rsid_
         ::memcpy(&rsid_updated_faceprints->adaptiveDescriptorWithoutMask[0], &updated_faceprints.data.adaptiveDescriptorWithoutMask[0],
                  sizeof(updated_faceprints.data.adaptiveDescriptorWithoutMask));
 
-        // update withMask[] vector
-        static_assert(sizeof(rsid_updated_faceprints->adaptiveDescriptorWithMask) ==
-                          sizeof(updated_faceprints.data.adaptiveDescriptorWithMask),
-                      "adaptive faceprints (with mask) sizes does not match");
-        ::memcpy(&rsid_updated_faceprints->adaptiveDescriptorWithMask[0], &updated_faceprints.data.adaptiveDescriptorWithMask[0],
-                 sizeof(updated_faceprints.data.adaptiveDescriptorWithMask));
-
         // Does the DB entry of the user is RGB type ?
         // if yes - update also the enrollement vector.
         bool isEnrolledTypeInDbIsRgb = (RealSenseID::FaceprintsTypeEnum::RGB == existing_faceprints.data.featuresType);
@@ -770,7 +978,6 @@ rsid_match_result rsid_match_faceprints(rsid_authenticator* authenticator, rsid_
         if (isEnrolledTypeInDbIsRgb)
         {
             // LOG_DEBUG(LOG_TAG, "---> Updating RGB image-based enrollment vector in the DB...");
-            //  update withMask[] vector
             static_assert(sizeof(rsid_updated_faceprints->enrollmentDescriptor) == sizeof(updated_faceprints.data.enrollmentDescriptor),
                           "enrollment faceprints sizes does not match");
             ::memcpy(&rsid_updated_faceprints->enrollmentDescriptor[0], &updated_faceprints.data.enrollmentDescriptor[0],
@@ -788,6 +995,78 @@ rsid_status rsid_authenticate_loop(rsid_authenticator* authenticator, const rsid
     auto* auth_impl = get_auth_impl(authenticator);
     AuthClbk authCallback(*args);
     auto status = auth_impl->AuthenticateLoop(authCallback);
+    return static_cast<rsid_status>(status);
+}
+
+rsid_status rsid_detect_persons(rsid_authenticator* authenticator, rsid_person_detection_clbk callback, int loop, void* ctx)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    auto person_callback = [callback, ctx](const std::vector<RealSenseID::PersonRect>& persons, unsigned int ts,
+                                           RealSenseID::AuthenticateStatus status) -> bool {
+        if (callback == nullptr)
+            return false;
+
+        rsid_person_rect c_persons[RSID_MAX_PERSONS];
+        auto n_persons = to_c_persons(persons, c_persons, RSID_MAX_PERSONS);
+        int result = callback(c_persons, n_persons, ts, static_cast<rsid_auth_status>(status), ctx);
+        return result != 0;
+    };
+    auto status = auth_impl->DetectPersons(person_callback, loop != 0);
+    return static_cast<rsid_status>(status);
+}
+
+rsid_status rsid_detect_poses(rsid_authenticator* authenticator, rsid_pose_detection_clbk callback, int loop, void* ctx)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    auto pose_callback = [callback, ctx](const std::vector<RealSenseID::PersonPose>& poses, unsigned int ts,
+                                         RealSenseID::AuthenticateStatus status) -> bool {
+        if (callback == nullptr)
+            return false;
+
+        rsid_person_pose c_poses[RSID_MAX_PERSONS];
+        auto n_poses = to_c_poses(poses, c_poses, RSID_MAX_PERSONS);
+        int result = callback(c_poses, n_poses, ts, static_cast<rsid_auth_status>(status), ctx);
+        return result != 0;
+    };
+    auto status = auth_impl->DetectPoses(pose_callback, loop != 0);
+    return static_cast<rsid_status>(status);
+}
+
+rsid_status rsid_decode_barcodes(rsid_authenticator* authenticator, rsid_barcode_detection_clbk callback, int loop, void* ctx)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    auto barcode_callback = [callback, ctx](const std::vector<std::string>& barcodes, unsigned int ts,
+                                            RealSenseID::AuthenticateStatus status) -> bool {
+        if (callback == nullptr)
+            return false;
+
+        const char* c_barcodes[RSID_MAX_BARCODES];
+        size_t n_barcodes = std::min(static_cast<int>(barcodes.size()), RSID_MAX_BARCODES);
+        for (size_t i = 0; i < n_barcodes; i++)
+        {
+            c_barcodes[i] = barcodes[i].c_str();
+        }
+        int result = callback(c_barcodes, n_barcodes, ts, static_cast<rsid_auth_status>(status), ctx);
+        return result != 0;
+    };
+    auto status = auth_impl->DecodeBarcodes(barcode_callback, loop != 0);
+    return static_cast<rsid_status>(status);
+}
+
+rsid_status rsid_detect_body_parts(rsid_authenticator* authenticator, rsid_body_part_detection_clbk callback, int loop, void* ctx)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    auto body_part_callback = [callback, ctx](const std::vector<RealSenseID::PersonRect>& body_parts, unsigned int ts,
+                                              RealSenseID::AuthenticateStatus status) -> bool {
+        if (callback == nullptr)
+            return false;
+
+        rsid_person_rect c_body_parts[RSID_MAX_PERSONS];
+        auto n_body_parts = to_c_persons(body_parts, c_body_parts, RSID_MAX_PERSONS);
+        int result = callback(c_body_parts, n_body_parts, ts, static_cast<rsid_auth_status>(status), ctx);
+        return result != 0;
+    };
+    auto status = auth_impl->DetectBodyParts(body_part_callback, loop != 0);
     return static_cast<rsid_status>(status);
 }
 
@@ -869,7 +1148,10 @@ int rsid_is_fw_compatible_with_host(const rsid_device_type device, const char* f
 
 void rsid_set_log_clbk(rsid_log_clbk clbk, rsid_log_level min_level, int do_formatting)
 {
-    auto log_clbk = [clbk](RealSenseID::LogLevel level, const char* msg) { clbk(static_cast<rsid_log_level>(level), msg); };
+    auto log_clbk = [clbk](RealSenseID::LogLevel level, const char* msg) {
+        if (clbk)
+            clbk(static_cast<rsid_log_level>(level), msg);
+    };
 
     auto required_level = static_cast<RealSenseID::LogLevel>(min_level);
     auto required_formatting = static_cast<bool>(do_formatting);
@@ -943,6 +1225,12 @@ rsid_status rsid_get_users_faceprints(rsid_authenticator* authenticator, rsid_fa
     return status;
 }
 
+rsid_status rsid_dump_and_mount(rsid_authenticator* authenticator)
+{
+    auto* auth_impl = get_auth_impl(authenticator);
+    return static_cast<rsid_status>(auth_impl->DumpAndMount());
+}
+
 rsid_status rsid_set_users_faceprints(rsid_authenticator* authenticator, rsid_user_faceprints_dble* user_features,
                                       const unsigned int number_of_users)
 {
@@ -982,7 +1270,7 @@ rsid_device_type rsid_discover_device_type(const char* serial_port)
 {
     static_assert(static_cast<int>(RealSenseID::DeviceType::Unknown) == rsid_device_type::RSID_DeviceType_Unknown, "");
     static_assert(static_cast<int>(RealSenseID::DeviceType::F45x) == rsid_device_type::RSID_DeviceType_F45x, "");
-    static_assert(static_cast<int>(RealSenseID::DeviceType::F46x) == rsid_device_type::RSID_DeviceType_F46x, "");
+    static_assert(static_cast<int>(RealSenseID::DeviceType::F50x) == rsid_device_type::RSID_DeviceType_F50x, "");
     return static_cast<rsid_device_type>(RealSenseID::DiscoverDeviceType(serial_port));
 }
 
@@ -998,21 +1286,29 @@ int rsid_discover_devices(rsid_device_info devices[], int array_size)
     {
         return 0;
     }
+
     if (static_cast<int>(items.size()) > array_size)
     {
         return -1;
     }
 
-    int i = 0;
-    static_assert(sizeof(RealSenseID::DeviceInfo::serialPort) == sizeof(rsid_device_info::serial_port),
-                  "serial_port should be same size as the c++ serialPort");
+    static_assert(sizeof(RealSenseID::DeviceInfo::serialPort) == sizeof(rsid_device_info::serial_port), "serial_port!=serialPort");
+    static_assert(sizeof(RealSenseID::DeviceInfo::serialNumber) == sizeof(rsid_device_info::serial_number), "serial_number!=serialNumber");
+    int count = 0;
     for (const auto& item : items)
     {
-        ::memcpy(devices[i].serial_port, item.serialPort, sizeof(item.serialPort) - 1);
-        devices[i].serial_port[sizeof(item.serialPort) - 1] = '\0';
-        devices[i++].device_type = static_cast<rsid_device_type>(item.deviceType);
+        auto& dev = devices[count++];
+
+        ::memcpy(dev.serial_port, item.serialPort, sizeof(dev.serial_port) - 1);
+        dev.serial_port[sizeof(dev.serial_port) - 1] = '\0';
+
+        dev.device_type = static_cast<rsid_device_type>(item.deviceType);
+
+        ::memcpy(dev.serial_number, item.serialNumber, sizeof(dev.serial_number) - 1);
+        dev.serial_number[sizeof(dev.serial_number) - 1] = '\0';
+        dev.camera_number = item.cameraNumber;
     }
-    return i;
+    return count;
 }
 
 #ifdef _WIN32

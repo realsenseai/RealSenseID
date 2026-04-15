@@ -11,7 +11,7 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 
-# if msvc, make sure __cplusplus is defined and add parallel build option
+# If msvc, make sure __cplusplus is defined and add parallel build option
 if(MSVC)    
     string(APPEND CMAKE_CXX_FLAGS " /Zc:__cplusplus /MP")    
 endif()
@@ -71,18 +71,23 @@ option(RSID_DOXYGEN "Build doxygen docs" OFF)
 option(RSID_SECURE "Enable secure communication with device" OFF)
 option(RSID_TOOLS "Build additional tools" ON)
 option(RSID_PY "Build python wrapper" OFF)
-option(RSID_NETWORK "Enable networking. Required for update checker." OFF)
+option(RSID_PREVIEW "Enable preview" OFF)
+if(ANDROID)
+    set(RSID_LIBUVC ON CACHE BOOL "Use libuvc instead of V4L2 for preview" FORCE)
+elseif(NOT WIN32)
+    option(RSID_LIBUVC "Use libuvc instead of V4L2 for preview" OFF)
+endif()
+option(RSID_ONE2ONE "Enable one to one user matching use case" OFF)
+option(RSID_TESTS "Build unit tests" OFF)
 
-if(NOT ANDROID)
-    # preview option
-    option(RSID_PREVIEW "Enable preview" OFF)
-
-    # install option
-    option(RSID_INSTALL "Generate the install target and rsidConfig.cmake" OFF)
+# libuvc is only used for preview, so disable it when preview is off
+if(RSID_LIBUVC AND NOT RSID_PREVIEW)
+    set(RSID_LIBUVC OFF CACHE BOOL "" FORCE)
 endif()
 
-if(RSID_NETWORK)
-    add_compile_definitions(RSID_NETWORK)
+if(NOT ANDROID)
+    # install option
+    option(RSID_INSTALL "Generate the install target and rsidConfig.cmake" OFF)
 endif()
 
 if(RSID_TIDY)
@@ -104,18 +109,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${LIBS_OUTPUT_PATH}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${LIBS_OUTPUT_PATH}")    
 SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 
-if(RSID_NETWORK)
-    include(cmake/libcurl.cmake)
-    include(cmake/restClient.cmake)
-    include(cmake/nlohmann-json.cmake)
-    include(cmake/base64_hpp.cmake)
-endif()
-
 include(cmake/OS.cmake)
-include(cmake/SpdLog.cmake)
-if(MSVC AND RSID_NETWORK)
-    include(cmake/winreg.cmake)
-endif()
+include(cmake/spdlog.cmake)
 
 if(RSID_SECURE)
     include(cmake/Mbedtls.cmake)
@@ -123,7 +118,7 @@ endif()
 
 if(RSID_PREVIEW AND NOT MSVC)
     include(cmake/libjepg-turbo.cmake)
-    if (NOT MSVC)
+    if(RSID_LIBUVC)
         include(cmake/libuvc.cmake)
     endif()
 endif()
@@ -138,6 +133,10 @@ endif()
 
 if (RSID_TOOLS)
     add_subdirectory(tools)
+endif ()
+
+if (RSID_TESTS)
+    add_subdirectory(tests)
 endif ()
 
 add_subdirectory(src)

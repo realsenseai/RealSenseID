@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -29,7 +29,6 @@ public:
 
 private:
     std::unique_ptr<StreamConverter> _stream_converter;
-
     std::unique_ptr<UVCStreamer> _uvc_streamer;
     PreviewConfig _config;
 };

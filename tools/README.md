@@ -1,5 +1,5 @@
 
-# 			Intel RealSense ID Tools
+# 			RealSense ID Tools
 
 [Instructions for Windows](#windows----compilation-and-usage)
 
@@ -48,7 +48,7 @@ Use CMake version 3.13.0 or above
 **Done!**
 ## **How to run example apps**
 
-***Make sure you have connected the Intel RealSense ID F450 / F455 device to your PC***.
+***Make sure you have connected the RealSense ID F450 / F455 device to your PC***.
 
 Run Windows "Device Manager" and check in which COM port the device was recognized (It should appear under **Ports (COM & LPT)** (For example: COM3)
 
@@ -103,11 +103,11 @@ rsid-cli.exe COM3
 
 ## **How to run toos**
 
-***First make sure you have connected the Intel RealSense ID F450 / F455 Camera to your PC***.
+***First make sure you have connected the RealSense ID F450 / F455 Camera to your PC***.
 
 1. Identify your device by running:
 	```console 
-	sudo dmesg | grep 'Intel F450' -A 5 | grep ttyACM
+	sudo dmesg | grep 'F450' -A 5 | grep ttyACM
 	```
 	The output should be something like: "... ttyACM#: USB ACM device ..." - where # is the port number.
     

@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/FwUpdater.h"
 #include "RealSenseID/DeviceController.h"
@@ -74,6 +74,18 @@ void rsid_destroy_fw_updater(rsid_fw_updater* handle)
 rsid_status rsid_extract_firmware_version(rsid_fw_updater* handle, const char* bin_path, char* new_fw_version, size_t new_fw_version_length,
                                           char* new_recognition_version, size_t new_recognition_version_size)
 {
+    assert(handle != nullptr);
+    assert(bin_path != nullptr);
+    assert(new_fw_version != nullptr);
+    assert(new_recognition_version != nullptr);
+    if (handle == nullptr || bin_path == nullptr || new_fw_version == nullptr || new_fw_version_length == 0 ||
+        new_recognition_version == nullptr || new_recognition_version_size == 0)
+        return rsid_status::RSID_Error;
+
+    assert(handle->_impl != nullptr);
+    if (handle->_impl == nullptr)
+        return rsid_status::RSID_Error;
+
     const auto* fw_updater_impl = static_cast<RealSenseID::FwUpdater*>(handle->_impl);
 
     std::string out_fw_version;
@@ -96,6 +108,16 @@ rsid_status rsid_extract_firmware_version(rsid_fw_updater* handle, const char* b
 rsid_status rsid_update_firmware(rsid_fw_updater* handle, const rsid_fw_update_event_handler* event_handler,
                                  rsid_fw_update_settings settings, const char* bin_path)
 {
+    assert(handle != nullptr);
+    assert(event_handler != nullptr);
+    assert(bin_path != nullptr);
+    if (handle == nullptr || event_handler == nullptr || bin_path == nullptr)
+        return rsid_status::RSID_Error;
+
+    assert(handle->_impl != nullptr);
+    if (handle->_impl == nullptr)
+        return rsid_status::RSID_Error;
+
     const auto* fw_updater_impl = static_cast<RealSenseID::FwUpdater*>(handle->_impl);
 
     RealSenseID::FwUpdater::Settings fw_updater_settings;
@@ -107,23 +129,68 @@ rsid_status rsid_update_firmware(rsid_fw_updater* handle, const rsid_fw_update_e
     return static_cast<rsid_status>(s);
 }
 
-// Return if sku compatibbe and set the values pointed by expected_sku_ver_ptr and device_sku_ver_ptr pointers
-int rsid_is_sku_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path, int* expected_sku_ver_ptr,
-                           int* device_sku_ver_ptr)
+// Check OTP-encryption SKU compatibility (F45x only; returns 1 for F460/F500).
+int rsid_is_otp_sku_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path, int* expected_otp_sku_ptr,
+                               int* device_otp_sku_ptr)
 {
-    assert(expected_sku_ver_ptr != nullptr);
-    assert(device_sku_ver_ptr != nullptr);
-    if (expected_sku_ver_ptr == nullptr || device_sku_ver_ptr == nullptr)
-    {
+    assert(expected_otp_sku_ptr != nullptr);
+    assert(device_otp_sku_ptr != nullptr);
+    if (expected_otp_sku_ptr == nullptr || device_otp_sku_ptr == nullptr)
         return 0;
-    }
     const auto* fw_updater_impl = static_cast<RealSenseID::FwUpdater*>(handle->_impl);
     RealSenseID::FwUpdater::Settings fw_updater_settings;
     fw_updater_settings.serial_config = RealSenseID::SerialConfig({settings.port});
-    int expected_sku_ver = 0;
-    int device_sku_ver = 0;
-    auto rv = fw_updater_impl->IsSkuCompatible(fw_updater_settings, bin_path, expected_sku_ver, device_sku_ver);
-    *expected_sku_ver_ptr = expected_sku_ver;
-    *device_sku_ver_ptr = device_sku_ver;
-    return rv;
+    int expected_otp_sku = 0, device_otp_sku = 0;
+    auto rv = fw_updater_impl->IsOtpSkuCompatible(fw_updater_settings, bin_path, expected_otp_sku, device_otp_sku);
+    *expected_otp_sku_ptr = expected_otp_sku;
+    *device_otp_sku_ptr = device_otp_sku;
+    return rv ? 1 : 0;
+}
+
+// Check CSS-signing (secure boot) compatibility (F460/F500 only; returns 1 for F45x).
+int rsid_is_secure_boot_compatible(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path,
+                                   int* expected_secure_boot_ptr, int* device_secure_boot_ptr)
+{
+    assert(expected_secure_boot_ptr != nullptr);
+    assert(device_secure_boot_ptr != nullptr);
+    if (expected_secure_boot_ptr == nullptr || device_secure_boot_ptr == nullptr)
+        return 0;
+    const auto* fw_updater_impl = static_cast<RealSenseID::FwUpdater*>(handle->_impl);
+    RealSenseID::FwUpdater::Settings fw_updater_settings;
+    fw_updater_settings.serial_config = RealSenseID::SerialConfig({settings.port});
+    int expected_secure_boot = 0, device_secure_boot = 0;
+    auto rv = fw_updater_impl->IsSecureBootCompatible(fw_updater_settings, bin_path, expected_secure_boot, device_secure_boot);
+    *expected_secure_boot_ptr = expected_secure_boot;
+    *device_secure_boot_ptr = device_secure_boot;
+    return rv ? 1 : 0;
+}
+
+// Run all compatibility checks (SKU, DB version, device type) in a single device connection
+int rsid_check_compatibility(rsid_fw_updater* handle, rsid_fw_update_settings settings, const char* bin_path, rsid_fw_compat_info* info)
+{
+    assert(handle != nullptr);
+    assert(bin_path != nullptr);
+    assert(info != nullptr);
+    if (handle == nullptr || bin_path == nullptr || info == nullptr)
+        return 0;
+
+    assert(handle->_impl != nullptr);
+    if (handle->_impl == nullptr)
+        return 0;
+
+    const auto* fw_updater_impl = static_cast<RealSenseID::FwUpdater*>(handle->_impl);
+    RealSenseID::FwUpdater::Settings fw_updater_settings;
+    fw_updater_settings.serial_config = RealSenseID::SerialConfig({settings.port});
+    fw_updater_settings.force_full = settings.force_full;
+    RealSenseID::FwUpdater::FwCompatibilityInfo compat_info;
+    auto rv = fw_updater_impl->CheckCompatibility(fw_updater_settings, bin_path, compat_info);
+    info->expected_otp_sku = compat_info.expectedOtpSku;
+    info->device_otp_sku = compat_info.deviceOtpSku;
+    info->expected_secure_boot = compat_info.expectedSecureBoot;
+    info->device_secure_boot = compat_info.deviceSecureBoot;
+    info->expected_db_ver = compat_info.expectedDbVer;
+    info->device_db_ver = compat_info.deviceDbVer;
+    info->expected_device_type = compat_info.expectedDeviceType;
+    info->connected_device_type = compat_info.connectedDeviceType;
+    return rv ? 1 : 0;
 }

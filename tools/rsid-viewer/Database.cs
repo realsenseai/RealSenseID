@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,7 +19,7 @@ namespace rsid_wrapper_csharp
 
         public Database()
         {
-            FaceprintsArray = new List<(rsid.Faceprints, string)>();            
+            FaceprintsArray = new List<(rsid.Faceprints, string)>();
             DbPath = DefaultPath;
             DbPathSaveBackup = DefaultPath + ".bak";
             DbVersion = -1;
@@ -54,7 +54,7 @@ namespace rsid_wrapper_csharp
             {
                 DbVersion = faceprints.version;
             }
-            
+
             // handle push to db.
             if (DoesUserExist(userId))
             {
@@ -62,10 +62,10 @@ namespace rsid_wrapper_csharp
             }
             else
             {
-                FaceprintsArray.Add((faceprints, userId));                
+                FaceprintsArray.Add((faceprints, userId));
                 return true;
             }
-            
+
         }
 
         public bool DoesUserExist(string userId)
@@ -101,7 +101,7 @@ namespace rsid_wrapper_csharp
             // var userFaceprints = userData.Item1;
             var userIdName = userData.Item2;
 
-            if(userIdStr == userIdName)
+            if (userIdStr == userIdName)
             {
                 // update by remove and then re-insert (found no other way to do that properly).
                 FaceprintsArray.RemoveAt(userIndex);
@@ -188,13 +188,14 @@ namespace rsid_wrapper_csharp
                 {
                     DbVersion = -1; // must reset dbVersion because Deserialize() may read garbage value from (empty) db file.
                 }
-                else 
+                else
                 {
                     // check if version mismatch.
-                    if(DbVersion != (FaceprintsArray[0].Item1.version))
+                    if (DbVersion != (FaceprintsArray[0].Item1.version))
                     {
+                        Console.WriteLine($"DB Load Error: Version Mismatch! DbVersion={DbVersion}, User[0].Version={FaceprintsArray[0].Item1.version}");
                         // will be handled respectively in MainWindow.xaml.cs.
-                        returnValue = -1; 
+                        returnValue = -1;
                     }
                 }
             }
@@ -214,11 +215,11 @@ namespace rsid_wrapper_csharp
             return DbVersion;
         }
 
-        public List<(rsid.Faceprints, string)> FaceprintsArray;    
-        
+        public List<(rsid.Faceprints, string)> FaceprintsArray;
+
         // db will be saved to file along with its version number.
         public int DbVersion;
-        
+
         // path of the db file.    
         public string DbPath;
 
@@ -226,7 +227,7 @@ namespace rsid_wrapper_csharp
         // for saving backup of the DB in case of load failure - will save the db to backup file and
         // re-start a new db from scratch. 
         // (e.g. due to Faceprints version change).
-        public string DbPathSaveBackup; 
+        public string DbPathSaveBackup;
     }
 
 }

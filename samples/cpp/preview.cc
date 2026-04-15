@@ -1,7 +1,8 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/Preview.h"
+#include "RealSenseID/DiscoverDevices.h"
 #include <chrono>
 #include <thread>
 #include <iostream>
@@ -20,7 +21,19 @@ public:
 
 int main()
 {
-    RealSenseID::PreviewConfig p_conf; // PreviewConfig default attributes are cameraNumber=-1 (auto detection) and previewMode=MJPEG_1080
+    auto devices = RealSenseID::DiscoverDevices();
+    if (devices.empty())
+    {
+        std::cout << "No device detected" << std::endl;
+        return 1;
+    }
+    auto& device = devices.front();
+    std::cout << "Using device on port " << device.serialPort << std::endl;
+
+    using namespace RealSenseID;
+    PreviewConfig p_conf;
+    p_conf.deviceType = device.deviceType;
+    p_conf.cameraNumber = device.cameraNumber;
     RealSenseID::Preview preview(p_conf);
     PreviewRender image_clbk;
 

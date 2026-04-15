@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/settings_content_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".ui.settings.SettingsFragment">
+
+  <ScrollView
+      android:id="@+id/settings_scroll_view"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:fillViewport="true"
+      app:layout_constraintBottom_toBottomOf="parent"
+      app:layout_constraintEnd_toEndOf="parent"
+      app:layout_constraintStart_toStartOf="parent"
+      app:layout_constraintTop_toTopOf="parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/db_mode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="false"
+            android:enabled="false"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/host_mode"
+            app:switchMinWidth="20dp" />
+
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/face_selection_text" />
+
+        <RadioGroup
+            android:id="@+id/face_selection_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/face_selection_single"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/face_selection_single" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/face_selection_multi"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/face_selection_multi" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/person_motion_mode_text" />
+
+        <RadioGroup
+            android:id="@+id/person_motion_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/person_motion_static"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/person_motion_static" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/person_motion_walkthrough"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/person_motion_walkthrough" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+
+      <!--      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">-->
+
+      <!--        <com.google.android.material.textview.MaterialTextView-->
+      <!--            android:layout_width="match_parent"-->
+      <!--            android:layout_height="wrap_content"-->
+      <!--            android:padding="20dp"-->
+      <!--            android:text="@string/distance_limit_text" />-->
+
+      <!--        <RadioGroup-->
+      <!--            android:id="@+id/distance_limit_radio_group"-->
+      <!--            android:layout_width="match_parent"-->
+      <!--            android:layout_height="wrap_content"-->
+      <!--            android:paddingHorizontal="20dp"-->
+      <!--            android:paddingTop="40dp">-->
+
+      <!--          <com.google.android.material.radiobutton.MaterialRadioButton-->
+      <!--              android:id="@+id/distance_limit_none"-->
+      <!--              android:layout_width="match_parent"-->
+      <!--              android:layout_height="wrap_content"-->
+      <!--              android:text="@string/distance_limit_none" />-->
+
+      <!--          <com.google.android.material.radiobutton.MaterialRadioButton-->
+      <!--              android:id="@+id/distance_limit_short"-->
+      <!--              android:layout_width="match_parent"-->
+      <!--              android:layout_height="wrap_content"-->
+      <!--              android:text="@string/distance_limit_short" />-->
+
+      <!--          <com.google.android.material.radiobutton.MaterialRadioButton-->
+      <!--              android:id="@+id/distance_limit_mid"-->
+      <!--              android:layout_width="match_parent"-->
+      <!--              android:layout_height="wrap_content"-->
+      <!--              android:text="@string/distance_limit_mid" />-->
+
+      <!--          <com.google.android.material.radiobutton.MaterialRadioButton-->
+      <!--              android:id="@+id/distance_limit_long"-->
+      <!--              android:layout_width="match_parent"-->
+      <!--              android:layout_height="wrap_content"-->
+      <!--              android:text="@string/distance_limit_long" />-->
+      <!--        </RadioGroup>-->
+      <!--      </com.google.android.material.card.MaterialCardView>-->
+
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/frontal_face_policy_text" />
+
+        <RadioGroup
+            android:id="@+id/frontal_face_policy_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/frontal_face_policy_none"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/frontal_face_policy_none" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/frontal_face_policy_moderate"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/frontal_face_policy_moderate" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/frontal_face_policy_strict"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/frontal_face_policy_strict" />
+
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/dump_mode" />
+
+        <RadioGroup
+            android:id="@+id/dump_mode_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/dump_none"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/dump_mode_none" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/dump_face"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/dump_mode_face" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/dump_full"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/dump_mode_full" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/security_level" />
+
+        <RadioGroup
+            android:id="@+id/security_level_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/security_level_high"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/sec_level_high" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/security_level_medium"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/sec_level_medium" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/security_level_standard"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/sec_level_standard" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/op_mode" />
+
+        <RadioGroup
+            android:id="@+id/algo_flow_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/algo_all"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/op_mode_all" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/algo_detect"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/op_mode_detect" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/algo_spoof"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/op_mode_spoof" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/algo_recognition"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/op_mode_recognize" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+          <com.google.android.material.textview.MaterialTextView
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:paddingStart="20dp"
+              android:paddingEnd="20dp"
+              android:paddingTop="20dp"
+              android:text="@string/features_text" />
+
+          <com.google.android.material.checkbox.MaterialCheckBox
+              android:id="@+id/features_rectangle"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginStart="20dp"
+              android:layout_marginEnd="20dp"
+              android:text="@string/features_rectangle" />
+
+          <com.google.android.material.checkbox.MaterialCheckBox
+              android:id="@+id/features_landmarks"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginStart="20dp"
+              android:layout_marginEnd="20dp"
+              android:text="@string/features_landmarks" />
+        </LinearLayout>
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="20dp"
+            android:text="@string/camera_rotation" />
+
+        <RadioGroup
+            android:id="@+id/camera_rotation_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="40dp">
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/camera_rotation_0"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/zero_degrees" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/camera_rotation_90"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/ninety_degrees" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/camera_rotation_180"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/one_eighty_degrees" />
+
+          <com.google.android.material.radiobutton.MaterialRadioButton
+              android:id="@+id/camera_rotation_270"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:text="@string/two_seventy_degrees" />
+        </RadioGroup>
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.card.MaterialCardView style="@style/SettingsCardStyle">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+          <com.google.android.material.textview.MaterialTextView
+              android:layout_width="0dp"
+              android:layout_height="wrap_content"
+              android:layout_weight="1"
+              android:padding="20dp"
+              android:text="@string/max_spoofs" />
+
+          <com.google.android.material.textfield.TextInputLayout
+              android:id="@+id/max_spoofs"
+              android:layout_width="50dp"
+              android:layout_height="wrap_content"
+              android:layout_gravity="center_vertical"
+              android:layout_margin="4dp"
+              android:layout_weight="1"
+              app:endIconMode="clear_text">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:maxLines="1" />
+          </com.google.android.material.textfield.TextInputLayout>
+
+          <com.google.android.material.button.MaterialButton
+              android:id="@+id/unlock_button"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_gravity="center_vertical"
+              android:layout_margin="4dp"
+              android:text="@string/unlock"
+              app:cornerRadius="8dp" />
+        </LinearLayout>
+
+      </com.google.android.material.card.MaterialCardView>
+
+      <com.google.android.material.button.MaterialButton
+          android:id="@+id/button_commit_device_settings"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_margin="8dp"
+          android:text="@string/update_settings" />
+
+    </LinearLayout>
+
+  </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

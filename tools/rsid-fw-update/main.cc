@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 #include "RealSenseID/FwUpdater.h"
 #include "RealSenseID/DeviceController.h"
 #include "RealSenseID/DiscoverDevices.h"
@@ -131,15 +131,15 @@ static RealSenseID::DeviceType toDeviceType(const char* input)
 {
     if (strcmp(input, "F45x") == 0 || strcmp(input, "f45x") == 0)
         return RealSenseID::DeviceType::F45x;
-    if (strcmp(input, "F46x") == 0 || strcmp(input, "f46x") == 0)
-        return RealSenseID::DeviceType::F46x;
+    if (strcmp(input, "F50x") == 0 || strcmp(input, "f50x") == 0)
+        return RealSenseID::DeviceType::F50x;
     return RealSenseID::DeviceType::Unknown;
 }
 
 static void PrintUsage(const char* program_name)
 {
     std::cout << "usage: " << program_name
-              << " --file <bin path> [--port <COM#>] [--force-version] [--force-full] [--device-type <<F45x/F46x>>] [--interactive] "
+              << " --file <bin path> [--port <COM#>] [--force-version] [--force-full] [--device-type <<F45x/F50x>>] [--interactive] "
                  "[--auto-approve] [--help]\n";
 }
 
@@ -172,7 +172,7 @@ static CommandLineArgs ParseCommandLineArgs(int argc, char* argv[])
                 args.device_type = toDeviceType(argv[++i]);
                 if (args.device_type == RealSenseID::DeviceType::Unknown)
                 {
-                    std::cerr << "Unknown device type. Should be F45x/F46x\n";
+                    std::cerr << "Unknown device type. Should be F45x/F50x\n";
                     exit(EXIT_FAILURE);
                 }
             }
@@ -343,6 +343,12 @@ int main(int argc, char* argv[])
             selected_device = {std::make_unique<DeviceMetadata>(metadata), std::move(device_info)};
         }
 
+        if (selected_device.device_info->deviceType == RealSenseID::DeviceType::Unknown)
+        {
+            std::cerr << "Failed to detect device type for port " << args.serial_port << "\n";
+            return EXIT_FAILURE;
+        }
+
         // extract fw version from update file
         RealSenseID::FwUpdater fw_updater(selected_device.device_info->deviceType);
 
@@ -363,13 +369,70 @@ int main(int argc, char* argv[])
         settings.serial_config = RealSenseID::SerialConfig({selected_device.device_info->serialPort});
         settings.force_full = args.force_full;
 
-        // check sku compatibility
-        int expectedSkuVer = 0, deviceSkuVer = 0;
-        if (!fw_updater.IsSkuCompatible(settings, bin_path, expectedSkuVer, deviceSkuVer))
+        // Check all compatibility fields in a single device connection.
+        RealSenseID::FwUpdater::FwCompatibilityInfo compatInfo;
+        fw_updater.CheckCompatibility(settings, bin_path, compatInfo);
+
+        if (!compatInfo.IsOtpSkuCompatible())
         {
-            std::cerr << "Device does not support the encryption applied on the firmware.\nReplace firmware binary to SKU" << deviceSkuVer
-                      << "\n";
+            if (compatInfo.deviceOtpSku < 0)
+                std::cerr << "Failed to determine OTP encryption SKU. Check device connection and try again.\n";
+            else
+                std::cerr << "Firmware mismatch.\nReplace firmware binary to SKU" << compatInfo.deviceOtpSku << "\n";
             return EXIT_FAILURE;
+        }
+
+        if (!compatInfo.IsSecureBootCompatible())
+        {
+            if (compatInfo.deviceSecureBoot < 0)
+                std::cerr << "Failed to determine secure boot variant. Check device connection and try again.\n";
+            else
+                std::cerr << "Firmware mismatch.\nReplace firmware binary to " << (compatInfo.deviceSecureBoot ? "SIGNED" : "NON SIGNED")
+                          << "\n";
+            return EXIT_FAILURE;
+        }
+
+        if (!compatInfo.IsDeviceTypeCompatible())
+        {
+            auto deviceTypeName = [](int t) -> const char* {
+                if (t == 0)
+                    return "F45x";
+                if (t == 1)
+                    return "F46x";
+                if (t == 2)
+                    return "F50x";
+                return "Unknown";
+            };
+            std::cerr << "Firmware device type mismatch: connected device (" << deviceTypeName(compatInfo.connectedDeviceType)
+                      << ") does not match the selected firmware (" << deviceTypeName(compatInfo.expectedDeviceType) << ").\n";
+            std::cerr << "Please use a firmware file that matches your device type.\n";
+            return EXIT_FAILURE;
+        }
+
+        if (compatInfo.deviceDbVer >= 0 && compatInfo.expectedDbVer >= 0 && compatInfo.deviceDbVer != compatInfo.expectedDbVer)
+        {
+            std::cerr << "Warning: DB version mismatch (device: v" << compatInfo.deviceDbVer << ", firmware: v" << compatInfo.expectedDbVer
+                      << ").\n";
+            std::cerr << "The device database may be erased after the update. Export it first if needed.\n\n";
+
+            if (!args.auto_approve)
+            {
+                std::string line;
+                while (true)
+                {
+                    std::cout << "Proceed with update anyway? (y/n)\n > ";
+                    if (!std::getline(std::cin, line))
+                        return EXIT_FAILURE;
+                    if (line.empty())
+                        continue;
+                    char key = static_cast<char>(std::tolower(line[0]));
+                    if (key == 'y')
+                        break;
+                    if (key == 'n')
+                        return EXIT_FAILURE;
+                }
+                std::cout << "\n";
+            }
         }
 
         // check compatibility with host

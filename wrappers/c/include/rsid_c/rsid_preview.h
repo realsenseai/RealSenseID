@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -15,6 +15,7 @@ extern "C"
     typedef struct
     {
         void* _impl;
+        void* _callback;
     } rsid_preview;
 
     typedef struct
@@ -22,8 +23,9 @@ extern "C"
         rsid_device_type device_type;
         int camera_number;
         rsid_preview_mode preview_mode;
-        int portraitMode;
-        int rotateRaw;
+        int portrait_mode;
+        int rotate_raw;
+        int skip_decode;
     } rsid_preview_config;
 
     typedef struct

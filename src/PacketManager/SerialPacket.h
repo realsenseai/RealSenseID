@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -24,6 +24,7 @@ struct FaMessage
 {
     char user_id[MaxUserIdSize + 1]; // ascii only. '\0' terminated
     char fa_status;                  // ascii status number (e.g. '0', '1', etc.)
+    char reserved[8];                // 8 bytes for reserved data
 };
 
 struct DataMessage
@@ -40,25 +41,37 @@ enum class SyncByte : char
 enum class MsgId : char
 {
     None = '-',
+
+    // Min value for fa messages
     MinFa = 'A',
     Authenticate = 'A',
     DetectSpoof = 'B',
     RemoveAllUsers = 'C',
     RemoveUser = 'D',
     Enroll = 'E',
-    EnrollImage = 'I',
-    EnrollCroppedFaceImage = 'G',
-    EnrollImageFeatureExtraction = 'J',
+    SaveDebug = 'F',
+    EnrollImageOneToOne = 'G',
     Hint = 'H',
+    EnrollImage = 'I',
+    EnrollImageFeatureExtraction = 'J',
+    AuthenticateOneToOne = 'K',
+    AuthenticateLoop = 'L',
+    AuthenticateImgOneToOne = 'M',
     SecureFaceprintsEnroll = 'N',
-    SecureFaceprintsAuthenticate = 'Q',
+    // = 'O',
     Progress = 'P',
+    SecureFaceprintsAuthenticate = 'Q',
     Result = 'R',
+    SaveDatabase = 'S',
     EnrollFaceprintsExtraction = 'T',
     Unlock = 'U',
+    // = 'V'
+    AuthenticateFaceprintsExtractionLoop = 'W',
     AuthenticateFaceprintsExtraction = 'X',
     Reply = 'Y',
     MaxFa = 'Z',
+    // Max value for fa messages
+
     HostEcdsaKey = 'a',
     DeviceEcdsaKey = 'b',
     HostEcdhKey = 'c',
@@ -66,26 +79,43 @@ enum class MsgId : char
     UploadImage = 'e',
     Faceprints = 'f',
     FaceDetected = 'g',
-    GetNumberOfUsers = 'n',
-    StartSession = 'o',
-    Ping = 'p',
-    QueryDeviceConfig = 'q',
-    SetDeviceConfig = 's',
-    StandBy = 't',
-    GetUserIds = 'u',
+    LandmarksDetected = 'h',
+#ifdef SECURITY_EXTENSIONS
     SecureFaceprintsBeginSecureSession = 'i',
     SecureFaceprintsEndSecureSession = 'j',
     SecureFaceprintsOnSecureSessionReady = 'k',
     SecureFaceprintsOnSecureSessionCmd = 'l',
     SecureFaceprintsOnSecureSessionCmdResp = 'm',
+#else
+    PersonDetected = 'i',
+    PoseDetected = 'j',
+    // = 'k',
+    // = 'l',
+#endif
+    FaceDistances = 'm',
+    GetNumberOfUsers = 'n',
+    StartSession = 'o',
+    Ping = 'p',
+    QueryDeviceConfig = 'q',
     SecureFaceprintsFaceprintsReady = 'r',
+    SetDeviceConfig = 's',
+    StandBy = 't',
+    GetUserIds = 'u',
+    BarcodeDecoded = 'v',
+    FaceCroppedImage = 'w',
     SetUserFeatures = 'x',
     GetUserFeatures = 'y',
-    LicenseVerificationStart = '$',
-    LicenseVerificationRequest = 'v',
-    LicenseVerificationResponse = 'h',
     Status = 'z',
-    SaveDatabase = 'S'
+
+    // F500 APIs
+    DetectPersons = '0',
+    DetectPersonsLoop = '1',
+    DetectPoses = '2',
+    DetectPosesLoop = '3',
+    DecodeBarcodes = '4',
+    DecodeBarcodesLoop = '5',
+    DetectBodyParts = '6',
+    DetectBodyPartsLoop = '7'
 };
 
 struct SerialPacket
@@ -122,9 +152,11 @@ static_assert((sizeof(SerialPacket::payload) % 32 == 0), "payload size must be d
 struct FaPacket : public SerialPacket
 {
     FaPacket(MsgId id, const char* user_id, char status);
+    FaPacket(MsgId id, const char* user_id, char status, const char* reserved, size_t reservedSize);
     FaPacket(MsgId id);
     const char* GetUserId() const;
-    char GetStatusCode();
+    char GetStatusCode() const;
+    const char* GetReserved() const;
 };
 
 // data packet
@@ -140,9 +172,6 @@ struct DataPacket : public SerialPacket
     }
 };
 
-bool IsFaPacket(const SerialPacket& packet);   // if MsgId in the 'A'..'Z' range
-bool IsDataPacket(const SerialPacket& packet); // if MsgId in the 'a'..'z' range
-
 namespace Commands
 {
 static const char* face_api = "\r\n__FACE_API__\r\n";
@@ -156,6 +185,7 @@ static const char* gtemp = "\r\ngtemp\r\n";
 static const char* get_color_gains = "\r\ncm\r\n";
 static const char* set_color_gains = "\r\ncm %d %d\r\n";
 static const char* hibernate = "\r\nsleep 1\r\n";
+static const char* usbmm = "\r\ninit 0\r\nusbmm 13\r\n";
 } // namespace Commands
 } // namespace PacketManager
 } // namespace RealSenseID

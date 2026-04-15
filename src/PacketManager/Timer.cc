@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "Timer.h"
 
@@ -7,7 +7,6 @@ namespace RealSenseID
 {
 namespace PacketManager
 {
-
 Timer::Timer(timeout_t threshold) : _timeout {threshold}, _start_tp {clock::now()}
 {
 }
@@ -28,12 +27,12 @@ timeout_t Timer::TimeLeft() const
 
 bool Timer::ReachedTimeout() const
 {
-    return TimeLeft() <= timeout_t {0};
+    return Elapsed() >= _timeout;
 }
 
 void Timer::Reset()
 {
-    _start_tp = clock ::now();
+    _start_tp = clock::now();
 }
 } // namespace PacketManager
 } // namespace RealSenseID

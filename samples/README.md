@@ -1,4 +1,4 @@
-# Intel RealSense ID Samples
+# RealSense ID Samples
 This folder contains basic code samples for the the supported languages.
 
 

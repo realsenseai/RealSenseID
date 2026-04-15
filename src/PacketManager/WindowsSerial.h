@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -26,6 +26,9 @@ public:
 
     // receive all bytes and copy to the buffer
     SerialStatus RecvBytes(char* buffer, size_t n_bytes) final;
+
+    // clear the serial buffers
+    void Clear() final;
 
 private:
     SerialConfig _config;

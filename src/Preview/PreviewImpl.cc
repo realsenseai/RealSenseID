@@ -1,11 +1,25 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "PreviewImpl.h"
+#include "RawHelper.h"
 #include "Logger.h"
 #include "RealSenseID/DiscoverDevices.h"
+
+#ifdef _WIN32
+#include "MSMFCapture.h"
+#else
+#ifdef RSID_LIBUVC
+#include "LibUVCCapture.h"
+#else
+#include "V4L2Capture.h"
+#endif
+#endif
+
+
 #include <chrono>
 #include <stdexcept>
+#include <system_error>
 
 static const char* LOG_TAG = "Preview";
 
@@ -54,6 +68,17 @@ bool PreviewImpl::StartPreview(PreviewImageReadyCallback& callback)
     {
         return false;
     }
+
+    // RAW10/W10 is only supported with libuvc, not V4L2
+#ifndef _WIN32
+#ifndef RSID_LIBUVC
+    if (_config.previewMode == PreviewMode::RAW10_1080P)
+    {
+        LOG_ERROR(LOG_TAG, "RAW10/W10 preview mode is not supported with the V4L2 backend");
+        return false;
+    }
+#endif // RSID_LIBUVC
+#endif // _WIN32
 
     _worker_thread = std::thread([&]() {
         try
@@ -145,6 +170,8 @@ bool PreviewImpl::StopPreview()
     {
         _worker_thread.join();
     }
+    _capture.reset();
+
     return true;
 }
 

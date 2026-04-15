@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include <RealSenseID/FaceAuthenticator.h>
 #include <RealSenseID/Version.h>
@@ -24,7 +24,7 @@ PYBIND11_MODULE(rsid_py, m)
     m.doc() = R"pbdoc(
         RealSenseID Python Bindings
         ==============================
-        Library for accessing Intel RealSenseID cameras
+        Library for accessing RealSenseID cameras
     )pbdoc";
 
     m.attr("__version__") = version_str;
@@ -34,7 +34,6 @@ PYBIND11_MODULE(rsid_py, m)
     init_face_authenticator(m);
     init_device_controller(m);
     init_discover_devices(m);
-    init_update_checker(m);
     init_fw_updater(m);
     init_logging(m);
 

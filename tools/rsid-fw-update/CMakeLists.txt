@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 3.14)
 
 project(RealSenseID_Firmware_Update_Cli_Tool CXX)
 

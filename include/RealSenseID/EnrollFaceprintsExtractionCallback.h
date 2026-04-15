@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -39,8 +39,9 @@ public:
      * Called to inform the client of problems encountered during the enrollment operation.
      *
      * @param[in] hint Hint for the problem encountered.
+     * @param[in] frameScore Score of current frame [0-1].
      */
-    virtual void OnHint(const EnrollStatus hint) = 0;
+    virtual void OnHint(const EnrollStatus hint, float frameScore) = 0;
 
     /**
      * Called to inform the client about detected faces during the authentication operation.
@@ -51,6 +52,35 @@ public:
     {
         // default empty impl for backward compatibilty
         (void)faces;
+        (void)ts;
+    }
+
+    /**
+     * Called to inform the client about detected face landmarks during the authentication operation.
+     *
+     * @param[in] landmarks Detected face landmarks. First item is the selected one for the authentication operation.
+     * @param[in] ts timestamp
+     */
+    virtual void OnLandmarksDetected(const std::vector<FaceLandmarks>& landmarks, const unsigned int ts)
+    {
+        // default empty impl for backward compatibility
+        (void)landmarks;
+        (void)ts;
+    }
+
+    /**
+     * Called to inform the client that face cropped is ready.
+     *
+     * @param[in] buffer bgr24 image buffer of the authenticated user face.
+     * @param[in] width image width.
+     * @param[in] height image height.
+     */
+    virtual void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height, const unsigned int ts)
+    {
+        // default empty impl for backward compatibility
+        (void)buffer;
+        (void)width;
+        (void)height;
         (void)ts;
     }
 };

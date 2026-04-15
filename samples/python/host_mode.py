@@ -1,6 +1,6 @@
 """
 License: Apache 2.0. See LICENSE file in root directory.
-Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 """
 
 """
@@ -9,7 +9,6 @@ Example of host mode where face features are stored in the host instead of the d
 import os
 import rsid_py
 
-PORT='COM9'
 faceprints_db = []
 
 def on_result(r, user_id=None):
@@ -28,7 +27,6 @@ def on_fp_enroll_result(status, extracted_prints):
         db_item.features_type = extracted_prints.features_type
         db_item.flags = extracted_prints.flags
         db_item.adaptive_descriptor_nomask = extracted_prints.features
-        db_item.adaptive_descriptor_withmask = [0]*515
         db_item.enroll_descriptor = extracted_prints.features
         faceprints_db.append(db_item)
     
@@ -52,13 +50,13 @@ def on_fp_auth_result(status, new_prints, authenticator):
                 max_score = match_result.score
                 selected_user_idx = i
     if(selected_user_idx >=0):
-        print("Matched user", i)
+        print("Matched user", selected_user_idx)
     else:
         print("No match found")
                           
 
-def host_mode_example():
-    with rsid_py.FaceAuthenticator(PORT) as authenticator:
+def host_mode_example(port):
+    with rsid_py.FaceAuthenticator(port) as authenticator:
         print("Enrolling...")
         authenticator.extract_faceprints_for_enroll(on_progress=on_progress, on_result=on_fp_enroll_result)
         if not faceprints_db:
@@ -70,4 +68,14 @@ def host_mode_example():
             on_result=lambda status, new_prints: on_fp_auth_result(status, new_prints, authenticator))
 
 if __name__ == '__main__':
-    host_mode_example()
+    devices = rsid_py.discover_devices()
+    if not devices:
+        print("Error: No RealSenseID device detected.")
+        exit(1)
+    if len(devices) > 1:
+        print("Error: Multiple devices detected. Please connect only one.")
+        exit(1)
+    device = devices[0]
+    print(f"Using device on port {device.serial_port}")
+
+    host_mode_example(device.serial_port)

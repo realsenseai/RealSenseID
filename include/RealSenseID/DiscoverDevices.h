@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -15,6 +15,8 @@ struct RSID_API DeviceInfo
     static constexpr size_t MaxBufferSize = 256;
     char serialPort[MaxBufferSize] = {};
     DeviceType deviceType = DeviceType::Unknown;
+    char serialNumber[MaxBufferSize] = {};
+    int cameraNumber = -1; //  0-based capture index, or -1 if not known
 };
 
 std::vector<DeviceInfo> RSID_API DiscoverDevices();

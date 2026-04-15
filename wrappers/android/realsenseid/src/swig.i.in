@@ -1,4 +1,31 @@
 %module(directors="1") RealSenseID
+// %module(directors="1", allprotected="1", naturalvar="1") RealSenseID
+
+%{
+#include <stdexcept>
+#include "jni.h"
+#include <android/log.h>
+#include <omp.h>
+
+#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "RealSenseID", __VA_ARGS__)
+
+static JavaVM *cached_jvm = nullptr;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
+    cached_jvm = jvm;
+    return JNI_VERSION_1_2;
+}
+
+static JNIEnv *JNU_GetEnv() {
+    JNIEnv *env;
+    jint rc = cached_jvm->GetEnv((void **)&env, JNI_VERSION_1_2);
+    if (rc == JNI_EDETACHED)
+        throw std::runtime_error("Current thread not attached to JVM");
+    if (rc == JNI_EVERSION)
+        throw std::runtime_error("Unsupported JNI version");
+    return env;
+}
+%}
 
 %{
     #include "RealSenseID/RealSenseIDExports.h"
@@ -23,7 +50,6 @@
     #include "RealSenseID/DeviceController.h"
     #include "RealSenseID/FwUpdater.h"
     #include "RealSenseID/Version.h"
-    #include "RealSenseID/UpdateChecker.h"
     #include "RealSenseID/DiscoverDevices.h"
 
     using namespace RealSenseID;
@@ -36,6 +62,12 @@
 %include <various.i>
 %include <arrays_java.i>
 %include <java.swg>
+%include <std_vector.i>
+%include <exception.i>
+
+%feature("autodoc", "3");
+%feature("compactdefaultargs");
+%ignore *::operator=;   // TODO: Fix this
 
 %naturalvar;
 
@@ -47,65 +79,75 @@ namespace std {
    typedef ::uint64_t uint64_t;
 
    %template(StringVector) vector<string>;
+   %template(IntVector) std::vector<int>;
+   %template(DoubleVector) std::vector<double>;
    %template(FaceRectVector) vector<RealSenseID::FaceRect>;
+   %template(PersonRectVector) vector<RealSenseID::PersonRect>;
+   %template(PersonPoseVector) vector<RealSenseID::PersonPose>;
+   %template(FaceLandmarksVector) vector<RealSenseID::FaceLandmarks>;
 //   %template(DeviceInfoVector) vector<RealSenseID::DeviceInfo>;      // DiscoverDevices
 }
 
 // #cmakedefine RSID_SECURE     // phasing out secure mode support.
-#cmakedefine RSID_NETWORK       // Will be defined if RSID_NETWORK is ON in cmake
+
+%ignore RealSenseID::AuthenticationCallback::OnFaceCroppedImage;
+%ignore RealSenseID::EnrollmentCallback::OnFaceCroppedImage;
+%ignore RealSenseID::AuthFaceprintsExtractionCallback::OnFaceCroppedImage;
+%ignore RealSenseID::EnrollFaceprintsExtractionCallback::OnFaceCroppedImage;
 
 // Define directors (allow C++ code to call Java code as well as the other way around)
-%feature("director") RealSenseID::AuthenticationCallback;
-%typemap(javaclassmodifiers) RealSenseID::AuthenticationCallback "public abstract class"
-%javamethodmodifiers RealSenseID::AuthenticationCallback::OnResult "public abstract"
-%typemap(javaout) void RealSenseID::AuthenticationCallback::OnResult ";"
-%javamethodmodifiers RealSenseID::AuthenticationCallback::OnHint "public abstract"
-%typemap(javaout) void RealSenseID::AuthenticationCallback::OnHint ";"
-%javamethodmodifiers RealSenseID::AuthenticationCallback::OnFaceDetected "public abstract"
-%typemap(javaout) void RealSenseID::AuthenticationCallback::OnFaceDetected ";"
+%define CALLBACK_DIRECTOR(CLASSNAME)
+%feature("director") RealSenseID::CLASSNAME;
+%typemap(javaclassmodifiers) RealSenseID::CLASSNAME "public abstract class"
+%javamethodmodifiers RealSenseID::CLASSNAME::CLASSNAME "protected"
+%enddef
 
-%feature("director") RealSenseID::EnrollmentCallback;
-%typemap(javaclassmodifiers) RealSenseID::EnrollmentCallback "public abstract class"
-%javamethodmodifiers RealSenseID::EnrollmentCallback::OnResult "public abstract"
-%typemap(javaout) void RealSenseID::EnrollmentCallback::OnResult ";"
-%javamethodmodifiers RealSenseID::EnrollmentCallback::OnProgress "public abstract"
-%typemap(javaout) void RealSenseID::EnrollmentCallback::OnProgress ";"
-%javamethodmodifiers RealSenseID::EnrollmentCallback::OnHint "public abstract"
-%typemap(javaout) void RealSenseID::EnrollmentCallback::OnHint ";"
-%javamethodmodifiers RealSenseID::EnrollmentCallback::OnFaceDetected "public abstract"
-%typemap(javaout) void RealSenseID::EnrollmentCallback::OnFaceDetected ";"
+%define CALLBACK_METHOD(CLASSNAME, METHOD)
+%javamethodmodifiers RealSenseID::CLASSNAME::METHOD "protected abstract"
+%typemap(javaout) void RealSenseID::CLASSNAME::METHOD ";"
+%enddef
 
-%feature("director") RealSenseID::AuthFaceprintsExtractionCallback;
-%typemap(javaclassmodifiers) RealSenseID::AuthFaceprintsExtractionCallback "public abstract class"
-%javamethodmodifiers RealSenseID::AuthFaceprintsExtractionCallback::OnResult "public abstract"
-%typemap(javaout) void RealSenseID::AuthFaceprintsExtractionCallback::OnResult ";"
-%javamethodmodifiers RealSenseID::AuthFaceprintsExtractionCallback::OnHint "public abstract"
-%typemap(javaout) void RealSenseID::AuthFaceprintsExtractionCallback::OnHint ";"
-%javamethodmodifiers RealSenseID::AuthFaceprintsExtractionCallback::OnFaceDetected "public abstract"
-%typemap(javaout) void RealSenseID::AuthFaceprintsExtractionCallback::OnFaceDetected ";"
+CALLBACK_DIRECTOR(AuthenticationCallback)
+CALLBACK_METHOD(AuthenticationCallback, OnResult)
+CALLBACK_METHOD(AuthenticationCallback, OnHint)
+CALLBACK_METHOD(AuthenticationCallback, OnFaceDetected)
+// CALLBACK_METHOD(AuthenticationCallback, OnFaceCroppedImage)
 
-%feature("director") RealSenseID::EnrollFaceprintsExtractionCallback;
-%typemap(javaclassmodifiers) RealSenseID::EnrollFaceprintsExtractionCallback "public abstract class"
-%javamethodmodifiers RealSenseID::EnrollFaceprintsExtractionCallback::OnResult "public abstract"
-%typemap(javaout) void RealSenseID::EnrollFaceprintsExtractionCallback::OnResult ";"
-%javamethodmodifiers RealSenseID::EnrollFaceprintsExtractionCallback::OnProgress "public abstract"
-%typemap(javaout) void RealSenseID::EnrollFaceprintsExtractionCallback::OnProgress ";"
-%javamethodmodifiers RealSenseID::EnrollFaceprintsExtractionCallback::OnHint "public abstract"
-%typemap(javaout) void RealSenseID::EnrollFaceprintsExtractionCallback::OnHint ";"
-%javamethodmodifiers RealSenseID::EnrollFaceprintsExtractionCallback::OnFaceDetected "public abstract"
-%typemap(javaout) void RealSenseID::EnrollFaceprintsExtractionCallback::OnFaceDetected ";"
+CALLBACK_DIRECTOR(EnrollmentCallback)
+CALLBACK_METHOD(EnrollmentCallback, OnResult)
+CALLBACK_METHOD(EnrollmentCallback, OnHint)
+CALLBACK_METHOD(EnrollmentCallback, OnProgress)
+CALLBACK_METHOD(EnrollmentCallback, OnFaceDetected)
+// CALLBACK_METHOD(EnrollmentCallback, OnFaceCroppedImage)
 
-%feature("director") RealSenseID::FwUpdater::EventHandler;
-%typemap(javaclassmodifiers) RealSenseID::FwUpdater::EventHandler "public abstract class"
-%javamethodmodifiers RealSenseID::FwUpdater::EventHandler::OnProgress "public abstract"
-%typemap(javaout) void RealSenseID::FwUpdater::EventHandler::OnProgress ";"
+CALLBACK_DIRECTOR(AuthFaceprintsExtractionCallback)
+CALLBACK_METHOD(AuthFaceprintsExtractionCallback, OnResult)
+CALLBACK_METHOD(AuthFaceprintsExtractionCallback, OnHint)
+CALLBACK_METHOD(AuthFaceprintsExtractionCallback, OnProgress)
+CALLBACK_METHOD(AuthFaceprintsExtractionCallback, OnFaceDetected)
+// CALLBACK_METHOD(AuthFaceprintsExtractionCallback, OnFaceCroppedImage)
+
+CALLBACK_DIRECTOR(EnrollFaceprintsExtractionCallback)
+CALLBACK_METHOD(EnrollFaceprintsExtractionCallback, OnResult)
+CALLBACK_METHOD(EnrollFaceprintsExtractionCallback, OnHint)
+CALLBACK_METHOD(EnrollFaceprintsExtractionCallback, OnProgress)
+CALLBACK_METHOD(EnrollFaceprintsExtractionCallback, OnFaceDetected)
+// CALLBACK_METHOD(EnrollFaceprintsExtractionCallback, OnFaceCroppedImage)
+
+CALLBACK_DIRECTOR(FwUpdater::EventHandler)
+CALLBACK_METHOD(FwUpdater::EventHandler, OnProgress)
+
+CALLBACK_DIRECTOR(PreviewImageReadyCallback)
+CALLBACK_METHOD(PreviewImageReadyCallback, OnPreviewImageReady)
+CALLBACK_METHOD(PreviewImageReadyCallback, OnSnapshotImageReady)
+
+// CALLBACK_DIRECTOR(RealSenseID::LogCallback)
+// CALLBACK_METHOD(RealSenseID::LogCallback, OnLog)
 
 // TODO: Improve the following less utilized callbacks
-%feature("director") RealSenseID::PreviewImageReadyCallback;
-%feature("director") RealSenseID::OnStartLicenseSession;
-%feature("director") RealSenseID::OnEndLicenseSession;
-%feature("director") RealSenseID::LogCallback;
-%feature("director") RealSenseID::SignatureCallback;
+// FIXME: Remove those two lines
+// %feature("director") RealSenseID::LogCallback;
+// %feature("director") RealSenseID::SignatureCallback;
 
 %typemap(jstype) std::string& OUTPUT "String[]"
 %typemap(jtype) std::string& OUTPUT "String[]"
@@ -125,12 +167,13 @@ namespace std {
   jstring jvalue = JCALL1(NewStringUTF, jenv, temp$argnum.c_str()); 
   JCALL3(SetObjectArrayElement, jenv, $input, 0, jvalue);
 }
-
 %apply std::string& OUTPUT { std::string& version }
 %apply std::string& OUTPUT { std::string& outFwVersion }
 %apply std::string& OUTPUT { std::string& outRecognitionVersion }
 %apply std::string& OUTPUT { std::string& serial }
 %apply std::string& OUTPUT { std::string& log }
+%apply float& OUTPUT { float& soc }         // GetTemperature
+%apply float& OUTPUT { float& board }       // GetTemperature
 
 %typemap(jni) char **STRING_IN_OUT "jobjectArray"
 %typemap(jtype) char **STRING_IN_OUT "String[]"
@@ -214,8 +257,10 @@ namespace std {
 %apply uint8_t& OUTPUT { uint8_t& version }    // Status QueryOtpVersion(uint8_t& version);
 %apply int& OUTPUT { int& red }
 %apply int& OUTPUT { int& blue }
-%apply int& INOUT { int& expectedSkuVer }
-%apply int& INOUT { int& deviceSkuVer };
+%apply int& INOUT { int& expectedOtpSku }
+%apply int& INOUT { int& deviceOtpSku };
+%apply int& INOUT { int& expectedSecureBoot }
+%apply int& INOUT { int& deviceSecureBoot };
 %apply unsigned int& INOUT { unsigned int& number_of_users_in_out }
 
 %typemap(jni) unsigned char *BYTE "jbyteArray"
@@ -231,13 +276,6 @@ namespace std {
 
 %typemap(javain) unsigned char *BYTE "$javainput"
 
-/* Prevent default freearg typemap from being used */
-%typemap(freearg) unsigned char *BYTE ""
-%apply(unsigned char *BYTE) { unsigned char *buffer1 }
-
-/* Buffer in (EnrollImageFeatureExtraction) */
-%apply unsigned char *NIOBUFFER { const unsigned char *buffer };
-
 %define JAVA_TYPE_MAP(CTYPE, JTYPE)
 %typemap(JAVA_TYPE_MAP) CTYPE, const CTYPE&, CTYPE& "JTYPE"
 %enddef
@@ -251,6 +289,27 @@ JAVA_TYPE_MAP(int, Integer)
 JAVA_TYPE_MAP(long, Long)
 JAVA_TYPE_MAP(uint8_t, Byte)
 
+%typemap(jni) unsigned char *BYTE "jbyteArray"
+%typemap(jtype) unsigned char *BYTE "byte[]"
+%typemap(jstype) unsigned char *BYTE "byte[]"
+%typemap(in) unsigned char *BYTE {
+  $1 = (unsigned char *) JCALL2(GetByteArrayElements, jenv, $input, 0);
+}
+
+%typemap(argout) unsigned char *BYTE {
+  JCALL3(ReleaseByteArrayElements, jenv, $input, (jbyte *) $1, 0);
+}
+
+%typemap(javain) unsigned char *BYTE "$javainput"
+%apply unsigned char *BYTE { const unsigned char* buffer };
+
+
+// Ignore those APIs for Android. We offer a rather optimized versions for them.
+// This will prevent `setBuffer` and `getBuffer` Java methods from being generated.
+// We already have optimized versions for the Java implementation that are available in the
+// %extend block below.
+%ignore RealSenseID::Image::buffer;
+
 // API defined in RealSenseID
 %import "@RealSenseID_HEADERS_FOLDER@/RealSenseIDExports.h"
 %include "../Android.h"
@@ -263,7 +322,7 @@ JAVA_TYPE_MAP(uint8_t, Byte)
 %import "@RealSenseID_HEADERS_FOLDER@/SignatureCallback.h"
 %include "@RealSenseID_HEADERS_FOLDER@/AuthenticateStatus.h"
 %include "@RealSenseID_HEADERS_FOLDER@/AuthenticationCallback.h"
-%import "@RealSenseID_HEADERS_FOLDER@/Preview.h"        // Not exposed
+%include "@RealSenseID_HEADERS_FOLDER@/Preview.h"
 %include "@RealSenseID_HEADERS_FOLDER@/SerialConfig.h"
 %include "@RealSenseID_HEADERS_FOLDER@/FacePose.h"
 %include "@RealSenseID_HEADERS_FOLDER@/EnrollStatus.h"
@@ -272,18 +331,121 @@ JAVA_TYPE_MAP(uint8_t, Byte)
 %include "@RealSenseID_HEADERS_FOLDER@/EnrollFaceprintsExtractionCallback.h"
 %include "@RealSenseID_HEADERS_FOLDER@/AuthFaceprintsExtractionCallback.h"
 %include "@RealSenseID_HEADERS_FOLDER@/FaceAuthenticator.h"
-%import "@RealSenseID_HEADERS_FOLDER@/DiscoverDevices.h"    // Not exposed
+%import "@RealSenseID_HEADERS_FOLDER@/DiscoverDevices.h"    // We don't discover on Android
 %include "@RealSenseID_HEADERS_FOLDER@/DeviceController.h"
 %include "@RealSenseID_HEADERS_FOLDER@/FwUpdater.h"
-%include "@RealSenseID_HEADERS_FOLDER@/UpdateChecker.h"
 %include "@RealSenseID_HEADERS_FOLDER@/Version.h"
 using namespace RealSenseID;
 
-namespace RealSenseID {
-    %extend struct Image
-    {
-        void GetImageBuffer(unsigned char *buffer1) {
-            memcpy(buffer1, $self->buffer, $self->size);
+
+%extend RealSenseID::Image {
+
+    jbyteArray GetImageBuffer() {
+        if (!$self->buffer || $self->size <= 0) {
+            ALOGD("Buffer is null or size is invalid");
+            return nullptr;
         }
-    };
-}
+
+        if ($self->width <= 0 || $self->height <= 0 || $self->stride <= 0) {
+            ALOGD("Invalid dimensions: width=%d, height=%d, stride=%d", $self->width, $self->height, $self->stride);
+            return nullptr;
+        }
+
+        if (!cached_jvm) {
+            throw std::runtime_error("JVM has not been initialized");
+        }
+
+        JNIEnv *env = JNU_GetEnv();
+        jbyteArray result = env->NewByteArray($self->size);
+        if (result == nullptr) {
+            ALOGD("Failed to allocate Java byte array");
+            return nullptr;
+        }
+
+        env->SetByteArrayRegion(result, 0, $self->size, reinterpret_cast<const jbyte*>($self->buffer));
+        return result;
+    }
+
+
+    /**
+    * Returns pixels converted to ARGB format ready for use with Android Bitmap.
+    *
+    * <p>This method extracts pixel data from the internal BGR buffer and converts
+    * it to the ARGB format required for Android Bitmap objects. The alpha channel
+    * is set to full opacity (255).</p>
+    *
+    * <p>Example usage:</p>
+    * <pre>{@code
+    * int[] bitmapPixels = image.GetBitmapPixels();
+    * int width = image.getSize();
+    * int height = image.getHeight();
+    *
+    * // Create bitmap from the pixel data
+    * Bitmap bitmap = Bitmap.createBitmap(
+    *     bitmapPixels, width, height, Bitmap.Config.ARGB_8888);
+    * }</pre>
+    *
+    * @return New array containing the ARGB pixel data, sized width × height.
+    */
+    jintArray GetBitmapPixels() {
+        if ($self->buffer == nullptr || $self->size <= 0) {
+            ALOGD("Buffer is null or size is invalid");
+            return nullptr;
+        }
+
+        if (!cached_jvm) {
+            throw std::runtime_error("JVM has not been initialized");
+        }
+
+        JNIEnv *env = JNU_GetEnv();
+        bool attached = false;
+
+        int width = $self->width;
+        int height = $self->height;
+        int stride = $self->stride;
+
+        if (width <= 0 || height <= 0 || stride <= 0) {
+            ALOGD("Invalid dimensions: width=%d, height=%d, stride=%d", width, height, stride);
+            return nullptr;
+        }
+
+        int totalPixels = width * height;
+        int alpha = 0xFF;
+
+        std::vector<int> argbArray;
+        try {
+            argbArray.resize(totalPixels);
+        } catch (const std::bad_alloc&) {
+            ALOGD("Failed to allocate memory for argbArray");
+            return nullptr;
+        }
+
+        #pragma omp parallel for private(row, col, bIndex, blue, green, red)
+        for (int i = 0; i < totalPixels; i++) {
+            int row = i / width;
+            int col = i % width;
+
+            int bIndex = row * stride + (col * 3);
+            if (bIndex + 2 >= stride * height) {
+                ALOGD("Detected out-of-bounds access in buffer at index %d", bIndex);
+                break;
+            }
+
+            int blue = static_cast<unsigned char>($self->buffer[bIndex  + 2]);
+            int green = static_cast<unsigned char>($self->buffer[bIndex + 1]);
+            int red = static_cast<unsigned char>($self->buffer[bIndex]);
+
+            argbArray[i] = (alpha << 24) | (red << 16) | (green << 8) | blue;
+        }
+
+        // Create jintArray to return to Java (we don't want bytes here!)
+        jintArray result = env->NewIntArray(totalPixels);
+        if (result == nullptr) {
+            ALOGD("Failed to allocate Java int array");
+        } else {
+            env->SetIntArrayRegion(result, 0, totalPixels, argbArray.data());
+        }
+
+        return result;
+    }
+}   // %extend

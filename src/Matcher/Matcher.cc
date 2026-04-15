@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "Matcher.h"
 #include "Logger.h"
@@ -129,30 +129,13 @@ void Matcher::HandleThresholdsConfiguration(const bool& probe_has_mask, const Fa
     }
     else
     {
-        // does the withMask vector is valid ?
-        feature_t vec_flags = existing_faceprints.data.adaptiveDescriptorWithMask[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS];
-        bool is_valid = (vec_flags == FaVectorFlagsEnum::VecFlagValidWithMask) ? true : false;
-
-        if (is_valid)
-        {
-            // apply adaptation on the WithMask[] vector
-            adaptiveThresholds.activeConfig = ThresholdsConfigEnum::ThresholdConfig_pM_gM;
-            // if with-mask the anchor vector is the _gNM vector anyway, so identical threshold
-            // is _pMgNM.
-            adaptiveThresholds.activeIdenticalThreshold = adaptiveThresholds.thresholds.identicalThreshold_gMgNM;
-            adaptiveThresholds.activeStrongThreshold = adaptiveThresholds.thresholds.strongThreshold_pMgM;
-            adaptiveThresholds.activeUpdateThreshold = adaptiveThresholds.thresholds.updateThreshold_pMgM;
-        }
-        else
-        {
-            // apply adaptation on the WithoutMask[] vector
-            adaptiveThresholds.activeConfig = ThresholdsConfigEnum::ThresholdConfig_pM_gNM;
-            // if with-mask the anchor vector is the _gNM vector anyway, so identical threshold
-            // is _pMgNM.
-            adaptiveThresholds.activeIdenticalThreshold = adaptiveThresholds.thresholds.identicalThreshold_gMgNM;
-            adaptiveThresholds.activeStrongThreshold = adaptiveThresholds.thresholds.strongThreshold_pMgNM;
-            adaptiveThresholds.activeUpdateThreshold = adaptiveThresholds.thresholds.updateThreshold_pMgNM_First;
-        }
+        // apply adaptation on the WithoutMask[] vector
+        adaptiveThresholds.activeConfig = ThresholdsConfigEnum::ThresholdConfig_pM_gNM;
+        // if with-mask the anchor vector is the _gNM vector anyway, so identical threshold
+        // is _pMgNM.
+        adaptiveThresholds.activeIdenticalThreshold = adaptiveThresholds.thresholds.identicalThreshold_gMgNM;
+        adaptiveThresholds.activeStrongThreshold = adaptiveThresholds.thresholds.strongThreshold_pMgNM;
+        adaptiveThresholds.activeUpdateThreshold = adaptiveThresholds.thresholds.updateThreshold_pMgNM_First;
     }
 
 #if (RSID_MATCHER_DEBUG_LOGS)
@@ -202,28 +185,7 @@ bool Matcher::GetScores(const MatchElement& probe_faceprints, const std::vector<
             return false;
         }
 
-        // here we handle adaptive-learning for with/without mask vectors.
-        // choose the correct adaptiveVector.
-        if (!probe_has_mask)
-        {
-            galeryAdaptiveVector = (feature_t*)(&existing_faceprints.faceprints.data.adaptiveDescriptorWithoutMask[0]);
-        }
-        else
-        {
-            // does the adaptive-withMask vector is valid ?
-            feature_t vec_flags = existing_faceprints.faceprints.data.adaptiveDescriptorWithMask[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS];
-            bool is_valid = (vec_flags == FaVectorFlagsEnum::VecFlagValidWithMask) ? true : false;
-
-            if (is_valid)
-            {
-                galeryAdaptiveVector = (feature_t*)(&existing_faceprints.faceprints.data.adaptiveDescriptorWithMask[0]);
-            }
-            else
-            {
-                galeryAdaptiveVector = (feature_t*)(&existing_faceprints.faceprints.data.adaptiveDescriptorWithoutMask[0]);
-            }
-        }
-
+        galeryAdaptiveVector = (feature_t*)(&existing_faceprints.faceprints.data.adaptiveDescriptorWithoutMask[0]);
         MatchTwoVectors(probeVector, galeryAdaptiveVector, &matchScore, vec_length);
 
         // save max found so far
@@ -267,7 +229,6 @@ void Matcher::FaceMatch(const MatchElement& probe_faceprints, const std::vector<
 
 bool Matcher::ValidateFaceprints(const Faceprints& faceprints, bool check_enrollment_vector)
 {
-    // TODO - carefull handling in MatchTwoVectors() may be required for vectors longer than 512.
     static_assert((RSID_NUM_OF_RECOGNITION_FEATURES <= 512),
                   "Vector length is higher than 512 - may need careful test and check, due to integer arithmetics and "
                   "overflow risk!");
@@ -295,7 +256,6 @@ bool Matcher::ValidateFaceprints(const Faceprints& faceprints, bool check_enroll
 
 bool Matcher::ValidateFaceprints(const MatchElement& faceprints)
 {
-    // TODO - carefull handling in MatchTwoVectors() may be required for vectors longer than 512.
     static_assert((RSID_NUM_OF_RECOGNITION_FEATURES <= 512),
                   "Vector length is higher than 512 - may need careful test and check, due to integer arithmetics and "
                   "overflow risk!");
@@ -353,11 +313,10 @@ ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_fa
 
     // Try to match the 2 faceprints, and raise should_update flag respecively.
     // note that here we also set the active thresholds configurtion
-    // which is used for adaptive-learning w/wo mask.
+    // which is used for adaptive-learning
     feature_t probeFaceFlags = probe_faceprints.data.featuresVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS];
-    bool probe_has_mask = (probeFaceFlags == FaVectorFlagsEnum::VecFlagValidWithMask) ? true : false;
 
-    FaceMatch(probe_faceprints, existing_faceprints_array, result, probe_has_mask);
+    FaceMatch(probe_faceprints, existing_faceprints_array, result, false);
 
     size_t user_index = (size_t)result.userId;
 
@@ -373,7 +332,7 @@ ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_fa
 
     // here we handle with/without mask adaptive learning.
     // we choose the correct thresholds Configuration, based on the probe-vector and the (matched) gallery-vector.
-    HandleThresholdsConfiguration(probe_has_mask, existing_faceprints_array[user_index].faceprints, adaptiveThresholds);
+    HandleThresholdsConfiguration(false, existing_faceprints_array[user_index].faceprints, adaptiveThresholds);
 
     // here correct active thresholds set correctly, so we can use them.
     result.isSame = (result.maxScore > adaptiveThresholds.activeStrongThreshold);
@@ -398,45 +357,14 @@ ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_fa
         feature_t* galeryAdaptiveVector = nullptr;
 
         // handle with/without mask vectors properly.
-        // choose the correct adaptive vector, and set its flags (based on thresholds configuration).
-        switch (adaptiveThresholds.activeConfig)
-        {
-        case ThresholdsConfigEnum::ThresholdConfig_pM_gNM:
-            // since we are here only is should_update=true, then we
-            // set the adaptive withMask[] vector for the first time (with values of the new faceprints).
-            //
-            // since its the FIRST TIME - it will probably take 10-20 iterations to converge
-            // during LimitAdaptiveVector().
-            anchorVector = &updated_faceprints.data.adaptiveDescriptorWithoutMask[0];
-            galeryAdaptiveVector = &updated_faceprints.data.adaptiveDescriptorWithMask[0];
-            ::memcpy(galeryAdaptiveVector, probeVector, sizeof(probe_faceprints.data.featuresVector));
-            // mark the vector as "valid with mask"
-            galeryAdaptiveVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] = FaVectorFlagsEnum::VecFlagValidWithMask;
+        // set adaptive vector's flags (based on thresholds configuration).
+        anchorVector = &updated_faceprints.data.enrollmentDescriptor[0];
+        galeryAdaptiveVector = &updated_faceprints.data.adaptiveDescriptorWithoutMask[0];
+        // galeryAdaptiveVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] =
+        // FaVectorFlagsEnum::VecFlagValidWithoutMask;
 #if (RSID_MATCHER_DEBUG_LOGS)
-            LOG_DEBUG(LOG_TAG, "----> With-mask adaptation (first-time).");
+        LOG_DEBUG(LOG_TAG, "----> Without-mask adaptation.");
 #endif
-            break;
-
-        case ThresholdsConfigEnum::ThresholdConfig_pM_gM:
-            anchorVector = &updated_faceprints.data.adaptiveDescriptorWithoutMask[0];
-            galeryAdaptiveVector = &updated_faceprints.data.adaptiveDescriptorWithMask[0];
-            // galeryAdaptiveVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] = FaVectorFlagsEnum::VecFlagValidWithMask;
-#if (RSID_MATCHER_DEBUG_LOGS)
-            LOG_DEBUG(LOG_TAG, "----> With-mask adaptation (not first-time).");
-#endif
-            break;
-
-        case ThresholdsConfigEnum::ThresholdConfig_pNM_gNM:
-        default:
-            anchorVector = &updated_faceprints.data.enrollmentDescriptor[0];
-            galeryAdaptiveVector = &updated_faceprints.data.adaptiveDescriptorWithoutMask[0];
-            // galeryAdaptiveVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] =
-            // FaVectorFlagsEnum::VecFlagValidWithoutMask;
-#if (RSID_MATCHER_DEBUG_LOGS)
-            LOG_DEBUG(LOG_TAG, "----> Without-mask adaptation.");
-#endif
-            break;
-        }
 
         // blend the current adaptive galery vector with the new vector
         BlendAverageVector(galeryAdaptiveVector, probeVector, vec_length);
@@ -450,9 +378,9 @@ ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_fa
 
     // information log message here.
     LOG_DEBUG(LOG_TAG,
-              "match Score: %d, isSame: %d, shouldUpdate: %d, hasMask: %d, activeStrongTH: %d, activeUpdateTH: %d, "
+              "match Score: %d, isSame: %d, shouldUpdate: %d, activeStrongTH: %d, activeUpdateTH: %d, "
               "activeThreshConfig: %d, confidenceLevel: %d.",
-              result.maxScore, result.isSame, result.should_update, probe_has_mask, adaptiveThresholds.activeStrongThreshold,
+              result.maxScore, result.isSame, result.should_update, adaptiveThresholds.activeStrongThreshold,
               adaptiveThresholds.activeUpdateThreshold, adaptiveThresholds.activeConfig, adaptiveThresholds.thresholds.confidenceLevel);
 
     return result;
@@ -530,12 +458,6 @@ static void ConvertFaceprintsToUserFaceprints(const Faceprints& faceprints, User
                   "updated faceprints (with mask) sizes don't match");
     ::memcpy(&extended_faceprints.faceprints.data.adaptiveDescriptorWithoutMask[0], &faceprints.data.adaptiveDescriptorWithoutMask[0],
              sizeof(faceprints.data.adaptiveDescriptorWithoutMask));
-
-    static_assert(sizeof(extended_faceprints.faceprints.data.adaptiveDescriptorWithMask) ==
-                      sizeof(faceprints.data.adaptiveDescriptorWithMask),
-                  "updated faceprints (without) sizes don't match");
-    ::memcpy(&extended_faceprints.faceprints.data.adaptiveDescriptorWithMask[0], &faceprints.data.adaptiveDescriptorWithMask[0],
-             sizeof(faceprints.data.adaptiveDescriptorWithMask));
 
     static_assert(sizeof(extended_faceprints.faceprints.data.enrollmentDescriptor) == sizeof(faceprints.data.enrollmentDescriptor),
                   "enrollment faceprints sizes don't match");

@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "RealSenseID/Version.h"
 
@@ -15,8 +15,8 @@ const char* Description(DeviceType deviceType)
     {
     case RealSenseID::DeviceType::F45x:
         return "F45x";
-    case RealSenseID::DeviceType::F46x:
-        return "F46x";
+    case RealSenseID::DeviceType::F50x:
+        return "F50x";
     default:
         return "Unknown";
     }
@@ -40,7 +40,7 @@ const char* CompatibleFirmwareVersion(DeviceType device)
         return version.c_str();
     }
 
-    case DeviceType::F46x: {
+    case DeviceType::F50x: {
         static std::string version = std::string(std::to_string(RSID_FW46x_VER_MAJOR) + '.' + std::to_string(RSID_FW46x_VER_MINOR));
         return version.c_str();
     }
@@ -80,7 +80,7 @@ bool IsFwCompatibleWithHost(DeviceType device_type, const std::string& fw_versio
 
     if (device_type == DeviceType::F45x)
         return version_major == RSID_FW45x_VER_MAJOR && version_minor >= RSID_FW45x_VER_MINOR;
-    else if (device_type == DeviceType::F46x)
+    else if (device_type == DeviceType::F50x)
         return version_major == RSID_FW46x_VER_MAJOR && version_minor >= RSID_FW46x_VER_MINOR;
     else
         return false;

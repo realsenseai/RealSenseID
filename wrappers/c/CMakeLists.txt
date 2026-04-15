@@ -3,8 +3,8 @@ project(LibRealSenseID_C)
 set(INC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/rsid_c")
 set(SRC_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-set(HEADERS ${INC_PATH}/rsid_status.h ${INC_PATH}/rsid_export.h ${INC_PATH}/rsid_client.h ${INC_PATH}/rsid_update_checker.h)
-set(SOURCES ${SRC_PATH}/rsid_c_client.cc ${SRC_PATH}/rsid_c_device_controller.cc ${SRC_PATH}/rsid_c_update_checker.cc)
+set(HEADERS ${INC_PATH}/rsid_status.h ${INC_PATH}/rsid_export.h ${INC_PATH}/rsid_client.h)
+set(SOURCES ${SRC_PATH}/rsid_c_client.cc ${SRC_PATH}/rsid_c_device_controller.cc)
 
 if (MSVC)
     list(APPEND HEADERS "${INC_PATH}/rsid_fw_updater.h")
@@ -36,6 +36,11 @@ set_target_properties(${LIBRSID_C_TARGET}
 
 if(RSID_SECURE)
     target_compile_definitions(${LIBRSID_C_TARGET} PUBLIC RSID_SECURE)
+endif()
+
+
+if(RSID_ONE2ONE)
+    target_compile_definitions(${LIBRSID_C_TARGET} PUBLIC RSID_ONE2ONE)
 endif()
 
 

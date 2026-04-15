@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -76,6 +76,12 @@ public:
 
     // async cancel. set the _cancel_required flag and send cancel before next recv
     void Cancel();
+
+    // sync cancel. send the cancel message now
+    SerialStatus SendCancel();
+
+    // notify that the connection was closed
+    void OnConnectionClosed(); // call after the connection is closed/reset
 
 private:
     SerialConnection* _serial = nullptr;

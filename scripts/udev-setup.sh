@@ -11,7 +11,7 @@ OP=
 
 display_help()
 {
-   echo "Manage udev rules for Intel(R) RealSenseID(TM)."
+   echo "Manage udev rules for RealSenseID(TM) cameras."
    echo
    echo "usage: udev-setup.sh [-h] [-i|-r]"
    echo
@@ -36,7 +36,8 @@ set_op()
   if [ -z "${OP}" ]; then
     OP="$1"
   else
-    arg_error "Can only specify install or uninstall option once to choose script operation mode!"
+    arg_error "Can only specify install or uninstall option once to
+choose script operation mode!"
   fi
 }
 
@@ -54,21 +55,36 @@ done
 #   udevadm info --name=/dev/video0
 #   udevadm info --name=/dev/ttyACM0
 
-UDEV_RULES_FILE_PATH=/etc/udev/rules.d/99-realsenseid-libusb.rules
+UDEV_RULES_FILE_PATH=/etc/udev/rules.d/99-realsenseid.rules
 UDEV_RULES=$(cat <<-END
-##Version=1.0##
+##Version=1.1##
+# ############################################################################################################################
+# Device rules for F45x RealSenseID devices
+# ############################################################################################################################
+#  Allow non-root access to serial ports
+SUBSYSTEM=="usb",  ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="2aad", ATTRS{idProduct}=="6373", GROUP="plugdev",MODE="0664"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2aad", ATTRS{idProduct}=="6373", GROUP="dialout", MODE="0664"
 
-# Device rules for Intel F45x RealSenseID devices
+# ModemManager prevention
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2aad", ATTR{idProduct}=="6373", ENV{ID_MM_DEVICE_IGNORE}="1"
 
-# Allow non-root access to preview through libuvc
-SUBSYSTEM=="usb",  ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="00dd", GROUP="plugdev", MODE="0664"
-SUBSYSTEM=="usb",  ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="2aad", ATTRS{idProduct}=="6373", GROUP="plugdev", MODE="0664"
+# ############################################################################################################################
+# Device rules for F50x RealSenseID devices
+# ############################################################################################################################
+# Allow non-root access to serial ports
+SUBSYSTEM=="usb",  ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="414c", ATTRS{idProduct}=="6578", GROUP="plugdev", MODE="0664"
+SUBSYSTEM=="usb",  ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="414c", ATTRS{idProduct}=="6666", GROUP="plugdev", MODE="0664"
 
-# Allow non-root access to F45x serial ports
-SUBSYSTEM=="tty", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="00dd", GROUP="dialout", MODE="0664"
-SUBSYSTEM=="tty", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="2aad", ATTRS{idProduct}=="6373", GROUP="dialout", MODE="0664"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="414c", ATTRS{idProduct}=="6578", GROUP="dialout", MODE="0664"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="414c", ATTRS{idProduct}=="6666", GROUP="dialout", MODE="0664"
+
+# ModemManager prevention
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="414c", ATTR{idProduct}=="6578", ENV{ID_MM_DEVICE_IGNORE}="1"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="414c", ATTR{idProduct}=="6666", ENV{ID_MM_DEVICE_IGNORE}="1"
+
 END
 )
+
 
 case $OP in
   uninstall)
@@ -93,5 +109,3 @@ echo "   * Applying udev rules"
 udevadm trigger
 
 echo "** Done!"
-
-

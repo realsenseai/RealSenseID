@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 // Example how to sign and verify keys exchanged with the device when using RSID_SECURE mode (ECDH protocol).
 // In this sample we store the keys in memory and use the mbedtls library to sign/verify keys.

@@ -1,10 +1,11 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 
 #include "JPEGWICDecoder.h"
 #include "Logger.h"
 #include <Wincodec.h>
 #include <sstream>
+#include <mutex>
 
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "Windowscodecs.lib")
@@ -15,27 +16,23 @@ namespace Capture
 {
 
 static const char* LOG_TAG = "JPEGWICDecoder";
-static IWICImagingFactory* s_IWICFactory;
-
 
 JPEGWICDecoder::JPEGWICDecoder()
 {
-    InitDecompressor();
-}
-
-void JPEGWICDecoder::InitDecompressor()
-{
-    if (s_IWICFactory == nullptr)
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&_IWICFactory))))
     {
-        // MSMFCapture does this already. Will need to do this if MSMFCapture stops doing it.
-        // CoInitializeEx(nullptr, COINIT_MULTITHREADED));
-
-        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&s_IWICFactory))))
-        {
-            throw std::runtime_error("Failed to create IWICImagingFactory");
-        }
+        throw std::runtime_error("Failed to create IWICImagingFactory");
     }
 }
+
+JPEGWICDecoder::~JPEGWICDecoder()
+{
+    if (_IWICFactory)
+    {
+        _IWICFactory->Release();
+    }
+}
+
 
 #define RESOURCE_CLEANUP                                                                                                                   \
     do                                                                                                                                     \
@@ -77,22 +74,22 @@ bool JPEGWICDecoder::DecodeJpeg(Image* res, buffer frame_buffer, const size_t ma
     IWICBitmapLock* bitmap_lock = nullptr;
 
 
-    RETURN_FALSE_IF_FAILED("Create stream", s_IWICFactory->CreateStream(&stream));
+    RETURN_FALSE_IF_FAILED("Create stream", _IWICFactory->CreateStream(&stream));
 
     RETURN_FALSE_IF_FAILED("Init stream", stream->InitializeFromMemory(static_cast<unsigned char*>(frame_buffer.data), frame_buffer.size));
 
     RETURN_FALSE_IF_FAILED("Create bitmap decoder",
-                           s_IWICFactory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, &bitmap_decoder));
+                           _IWICFactory->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, &bitmap_decoder));
 
     RETURN_FALSE_IF_FAILED("Get frame from decoder", bitmap_decoder->GetFrame(0, &frame_decode));
 
-    RETURN_FALSE_IF_FAILED("Create format converter", s_IWICFactory->CreateFormatConverter(&format_converter));
+    RETURN_FALSE_IF_FAILED("Create format converter", _IWICFactory->CreateFormatConverter(&format_converter));
 
     RETURN_FALSE_IF_FAILED("Init format converter",
                            format_converter->Initialize(frame_decode, GUID_WICPixelFormat24bppRGB, WICBitmapDitherTypeNone, nullptr, 0.0f,
                                                         WICBitmapPaletteTypeCustom));
 
-    RETURN_FALSE_IF_FAILED("Create bitmap", s_IWICFactory->CreateBitmapFromSource(format_converter, WICBitmapCacheOnDemand, &bitmap));
+    RETURN_FALSE_IF_FAILED("Create bitmap", _IWICFactory->CreateBitmapFromSource(format_converter, WICBitmapCacheOnDemand, &bitmap));
 
     unsigned int width, height;
     RETURN_FALSE_IF_FAILED("Get bitmap size", bitmap->GetSize(&width, &height));
@@ -128,15 +125,6 @@ bool JPEGWICDecoder::DecodeJpeg(Image* res, buffer frame_buffer, const size_t ma
     return true;
 }
 
-
-JPEGWICDecoder::~JPEGWICDecoder()
-{
-    if (s_IWICFactory != nullptr)
-    {
-        s_IWICFactory->Release();
-        s_IWICFactory = nullptr;
-    }
-}
 
 } // namespace Capture
 } // namespace RealSenseID

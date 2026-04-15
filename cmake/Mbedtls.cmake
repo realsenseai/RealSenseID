@@ -4,12 +4,12 @@ function(fetch_mbedtls)
     FetchContent_Declare(
             mbedtls
             OVERRIDE_FIND_PACKAGE
-            URL https://github.com/Mbed-TLS/mbedtls/releases/download/v2.28.8/mbedtls-2.28.8.tar.bz2
-            URL_HASH SHA256=241c68402cef653e586be3ce28d57da24598eb0df13fcdea9d99bfce58717132
+            URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-2.28.10/mbedtls-2.28.10.tar.bz2
+            URL_HASH SHA256=19e5b81fdac0fe22009b9e2bdcd52d7dcafbf62bc67fc59cf0a76b5b5540d149
     )
 
-    # Prevent warning about empty PROJECT_VERSION vars
-    set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
+    # Support newer cmake versions
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 
     # Set flags
     set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "Build mbed TLS static library." FORCE)

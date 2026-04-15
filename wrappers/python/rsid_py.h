@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -10,7 +10,6 @@ void init_face_authenticator(pybind11::module& m);
 void init_preview(pybind11::module& m);
 void init_device_controller(pybind11::module& m);
 void init_discover_devices(pybind11::module& m);
-void init_update_checker(pybind11::module& m);
 void init_fw_updater(pybind11::module& m);
 void init_logging(pybind11::module& m);
 

@@ -1,5 +1,5 @@
 ﻿// License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -17,12 +17,19 @@ using System.Windows.Shapes;
 
 namespace rsid_wrapper_csharp
 {
-    /// <summary>
-    /// Interaction logic for EnrollInput.xaml
-    /// </summary>
+    public class ReleaseInfo
+    {
+        public ulong sw_version;
+        public ulong fw_version;
+        public string sw_version_str;
+        public string fw_version_str;
+        public string release_url;
+        public string release_notes_url;
+    }
+
     public partial class UpdateAvailableDialog : Window
     {
-        public UpdateAvailableDialog(rsid.UpdateChecker.ReleaseInfo localInfo, rsid.UpdateChecker.ReleaseInfo remoteInfo)
+        public UpdateAvailableDialog(ReleaseInfo localInfo, ReleaseInfo remoteInfo)
         {
             this.Owner = Application.Current.MainWindow;
             InitializeComponent();            

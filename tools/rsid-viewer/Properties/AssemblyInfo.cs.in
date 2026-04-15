@@ -12,7 +12,7 @@ using System.Windows;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("rsid_viewer")]
-[assembly: AssemblyCopyright("Copyright ©2024 Intel Corporation")]
+[assembly: AssemblyCopyright("Copyright ©2024 RealSense, Inc.")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

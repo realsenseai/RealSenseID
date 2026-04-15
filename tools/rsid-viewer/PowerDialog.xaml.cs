@@ -1,5 +1,5 @@
 ﻿// License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
 using System.Collections.Generic;
@@ -25,7 +25,8 @@ namespace rsid_wrapper_csharp
         public enum PowerMode
         {
             Standby,
-            Hibernate
+            Hibernate,
+            MountAndDump
         }
 
         public PowerDialog()
@@ -63,6 +64,13 @@ namespace rsid_wrapper_csharp
         {
             Mode = null;
             DialogResult = false;
+        }
+
+        private void DumpAndMount_Click(object sender, RoutedEventArgs e)
+        {
+            Mode = PowerMode.MountAndDump;
+            DialogResult = true;
+
         }
     }
 }

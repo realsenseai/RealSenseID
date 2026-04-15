@@ -1,4 +1,28 @@
-# Intel® RealSense™ ID Solution for Facial Authentication
+<p align="center">
+<!-- Light mode -->
+<img src="docs/img/realsense-logo-light-mode.png#gh-light-mode-only" alt="Logo for light mode" width="30%"/>
+
+<!-- Dark mode -->
+<img src="docs/img/realsense-logo-dark-mode.png#gh-dark-mode-only" alt="Logo for dark mode" width="30%"/>
+<br><br>
+</p>
+
+<p align="center">RealSense™ ID SDK is a cross-platform library for facial authentication solution.</p>
+
+<p align="center">
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/realsenseai/RealSenseID.svg" alt="License"></a>
+  <a href="https://github.com/realsenseai/RealSenseID/releases/latest"><img src="https://img.shields.io/github/v/release/realsenseai/RealSenseID?sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/realsenseai/RealSenseID/network/members"><img src="https://img.shields.io/github/forks/realsenseai/RealSenseID.svg" alt="Forks"></a>
+</p>
+
+## Important Notice
+
+We are happy to announce that the RealSense GitHub repositories have been successfully migrated to the RealSenseAI organization.
+Please make sure to update your links to the new RealSenseAI organization for both cloning the repositories and accessing specific files within them.
+
+[https://github.com/**IntelRealSense**/RealSenseID](https://github.com/IntelRealSense/RealSenseID) --> [https://github.com/**realsenseai**/RealSenseID](https://github.com/realsenseai/RealSenseID)
+
+> Note: A redirection from the previous name IntelRealSense is currently in place, but we cannot guarantee how long it will remain active. We recommend that all users update their references to point to the new GitHub location.
 
 ## Table of Contents
 
@@ -6,34 +30,37 @@
 2. [Platforms](#platforms)
 3. [Building](#building)
 4. [Sample Code](#sample-code)
-5. [RealSenseID API](#realsenseid-api)
-6. [Operation Modes](#operation-modes)
+5. [Operation Modes](#operation-modes)
+6. [Project Structure](#project-structure)
 7. [Secure Communication](#secure-communication)
 8. [License](#license)
-9. [Intel RealSense ID F450 and F455 Architecure Diagram](#intel-realsense-id-f450-and-f455-architecure-diagram)
+9. [RealSense™ ID Device Architecture Diagram](#realsense-id-device-architecture-diagram)
 
 ## Overview
 
-Intel RealSense ID is your trusted facial authentication on-device solution.
+RealSense™ ID is a trusted on-device facial authentication solution.
 
-Intel RealSense ID combines an active depth sensor with a specialized neural network designed to deliver an intuitive, secure and accurate facial authentication solution that adapts over time.
-This solution offers user privacy and is activated by user awareness. Built-in anti spoofing technology protects against attacks using photographs, videos or masks.
+The RealSense™ ID module performs face authentication on a closed real-time operating system (RTOS) using neural network–based algorithms, delivering secure, accurate recognition that adapts to users over time. Privacy is built in — authentication requires active user awareness, and anti-spoofing technology guards against attacks using photographs, videos, or masks.
 
-Intel RealSense ID is a natural solution simplifying secure entry for everyone, everywhere. Supports children to tall adults and designed for Smart Locks, Access Control, PoS, ATMs, and Kiosks.
+Designed to work for everyone, from children to tall adults, RealSense™ ID simplifies secure entry across Smart Locks, Access Control, PoS, ATMs, and Kiosks.
 
-Developer kits containing the necessary hardware to use this library are available for purchase at store.intelrealsense.com.
-See information about the Intel RealSense ID technology at https://www.intelrealsense.com/facial-authentication/
+Developer kits are available for purchase at [store.realsenseai.com](https://store.realsenseai.com/). For more on the technology, visit [realsenseai.com/facial-authentication](https://www.realsenseai.com/facial-authentication/).
 
-For high-level architecture, see [Intel RealSense ID F450 / F455 Architecture Diagram](#Intel-RealSense-ID-F450-and-F455-Architecure-Diagram).
+For high-level architecture, see the [RealSense™ ID Architecture Diagram](#realsense-id-device-architecture-diagram).
 
-Note: Device = Intel RealSense ID F450 / F455
+> **Note:** "Device" throughout this document refers to the RealSense™ ID F450 / F455 / F500 / F505.
+
+## AI Usage
+
+See [SKILL.md](./SKILL.md) for guidance when using this SDK with AI tools.
 
 ## Platforms
 
-- Linux (tested on Ubuntu 18, gcc 7.5+)
-- Windows (tested on Windows 10, msvc 2019)
+- Linux (Ubuntu 18.04+, Raspberry Pi 4+, Jetson)
+- Windows (Windows 10+)
+- Android 8-16
 
-### Bindings
+## Bindings
 
 - C/C++
 - Python
@@ -42,41 +69,56 @@ Note: Device = Intel RealSense ID F450 / F455
 
 ## Building
 
+### Quick Start
+
+```bash
+# Linux
+scripts/build.sh
+
+# Windows
+scripts\build.bat
+```
+
+This builds the library and tools in Release mode. Use `--help` (or `/help`) to see optional flags.
+
+### Manual CMake
+
 Use CMake version 3.14 or above:
 
 ```console
 $ cd <project_dir>
 $ mkdir build && cd build
-$ cmake .. //in case preview is required run: cmake .. -DRSID_PREVIEW=1 //in case secure is required run: cmake .. -DRSID_SECURE=1
-$ make -j
+$ cmake ..
+$ cmake --build . --config Debug
 ```
 
 ### CMake Options
 
-The following possible options are available for the `cmake` command
+The following options are available for the `cmake` command
 
-| Option               | Default | Feature                                          |
-| -------------------- | :-----: | :----------------------------------------------- |
-| `RSID_DEBUG_CONSOLE` |  `ON`   | Log everything to console                        |
-| `RSID_DEBUG_FILE`    |  `OFF`  | Log everything to _rsid_debug.log_ file          |
-| `RSID_DEBUG_SERIAL`  |  `OFF`  | Log all serial communication                     |
-| `RSID_DEBUG_PACKETS` |  `OFF`  | Log packet sent/received over the serial line    |
-| `RSID_DEBUG_VALUES`  |  `OFF`  | Replace default common values with debug ones    |
-| `RSID_SAMPLES`       |  `OFF`  | Build samples                                    |
-| `RSID_TIDY`          |  `OFF`  | Enable clang-tidy                                |
-| `RSID_PEDANTIC`      |  `OFF`  | Enable extra compiler warnings                   |
-| `RSID_PROTECT_STACK` |  `OFF`  | Enable stack protection compiler flags           |
-| `RSID_DOXYGEN`       |  `OFF`  | Build doxygen docs                               |
-| `RSID_SECURE`        |  `OFF`  | Enable secure communication with device          |
-| `RSID_TOOLS`         |  `ON`   | Build additional tools                           |
-| `RSID_PY`            |  `OFF`  | Build python wrapper                             |
-| `RSID_NETWORK`       |  `OFF`  | Enable networking. Required for update checker.  |
-| `RSID_PREVIEW`       |  `OFF`  | Enables preview feature.                         |
-| `RSID_INSTALL`       |  `OFF`  | Generate the install target and rsidConfig.cmake |
+| Option               | Default | Description                                                                 |
+| -------------------- | :-----: | :-------------------------------------------------------------------------- |
+| `RSID_DEBUG_CONSOLE` |  `ON`   | Log everything to console                                                   |
+| `RSID_DEBUG_FILE`    |  `OFF`  | Log everything to _rsid_debug.log_ file                                     |
+| `RSID_DEBUG_SERIAL`  |  `OFF`  | Log all serial communication                                                |
+| `RSID_DEBUG_PACKETS` |  `OFF`  | Log packets sent/received over the serial line                              |
+| `RSID_DEBUG_VALUES`  |  `OFF`  | Replace default common values with debug ones                               |
+| `RSID_SAMPLES`       |  `OFF`  | Build samples                                                               |
+| `RSID_TIDY`          |  `OFF`  | Enable clang-tidy                                                           |
+| `RSID_PEDANTIC`      |  `OFF`  | Enable extra compiler warnings                                              |
+| `RSID_PROTECT_STACK` |  `OFF`  | Enable stack protection compiler flags                                      |
+| `RSID_DOXYGEN`       |  `OFF`  | Build doxygen documentation                                                 |
+| `RSID_SECURE`        |  `OFF`  | Enable secure communication with device                                     |
+| `RSID_TOOLS`         |  `ON`   | Build additional tools                                                      |
+| `RSID_PY`            |  `OFF`  | Build Python wrapper                                                        |
+| `RSID_PREVIEW`       |  `OFF`  | Enable preview feature                                                      |
+| `RSID_LIBUVC`        |  `OFF`  | Use libuvc instead of V4L2 for preview (Linux only; forced `ON` on Android) |
+| `RSID_TESTS`         |  `OFF`  | Build unit tests                                                            |
+| `RSID_INSTALL`       |  `OFF`  | Generate the install target and rsidConfig.cmake (not available on Android) |
 
 ### Linux Post Install
 
-In order to install the udev rules for the F450/F455 devices, run the command:
+In order to install the udev rules for the RealSense™ ID devices, run the command:
 
 ```bash
 sudo script/udev-setup.sh -i
@@ -96,10 +138,14 @@ Note: Changes in group membership will take effect after logout/login (or reboot
 
 ### Windows Post Install
 
-In order to be able to capture metadata for RAW format (for enabling frame dumps), open a `PowerShell` terminal as Administrator and run the command
+In order to be able to capture metadata for RAW format, open a `PowerShell` terminal as Administrator and run the command
 
 ```shell
-.\scripts\realsenseid_metadata_win10.ps1
+# F450 / F455
+.\scripts\realsenseid_metadata_win10-f450.ps1
+
+# F500 / F505
+.\scripts\realsenseid_metadata_win10-f500.ps1
 ```
 
 ## Sample Code
@@ -108,7 +154,7 @@ This snippet shows the basic usage of our library.
 
 ```cpp
 RealSenseID::FaceAuthenticator authenticator;
-connect_status = authenticator.Connect({"COM9"});
+connect_status = authenticator.Connect({"COM4"});
 
 // Enroll a user
 const char* user_id = "John";
@@ -121,372 +167,16 @@ status = authenticator.Authenticate(auth_clbk);
 
 // Remove the user from device
 success = authenticator.RemoveUser(user_id);
+
 ```
 
 For additional languages, build instruction and detailed code please see our code [samples](./samples) and [tools](tools).
-
-## RealSenseID API
-
-The [RealSenseID](./include/RealSenseID/) is the main API to the communication with the device.
-C, C++, C#, Android and Python API wrappers are provided as part of the library.
-All APIs are synchronous and assuming a new operation will not be activated till previous is completed.
-
-- C++ [API](./include/RealSenseID) and [samples](./samples/cpp).
-- Other language [bindings](./wrappers) and [samples](./samples).
-
-### FaceAuthenticator Interface
-
-#### Connect / Disconnect
-
-Connects host to device using USB (`RealSenseID::SerialType::USB`) or UART interfaces (`RealSenseID::SerialType::UART`).
-
-```cpp
-RealSenseID::FaceAuthenticator authenticator;
-RealSenseID::Status connect_status = authenticator.Connect({"COM9"});
-authenticator.Disconnect();
-```
-
-#### Enroll
-
-Starts device, runs neural network algorithm and stores encrypted faceprints on database.
-A faceprint is a set number of points which is represented as mathematical transformation of the user’s face. saves encrypted facial features to secured flash on Intel RealSenseID F450/F455.
-Stored encrypted faceprints are matched with enrolled faceprints later during authentication.
-For best performance, enroll under normal lighting conditions and look directly at the device.
-During the enrollment process, device will send a status _hint_ to the callback provided by application.
-Full list of the _hint_ can be found in [EnrollStatus.h](./include/RealSenseID/).
-
-```cpp
-class MyEnrollClbk : public RealSenseID::EnrollmentCallback
-{
-public:
-    void OnResult(const RealSenseID::EnrollStatus status) override
-    {
-        std::cout << "on_result: status: " << status << std::endl;
-    }
-
-    void OnProgress(const RealSenseID::FacePose pose) override
-    {
-        std::cout << "on_progress: pose: " << pose << std::endl;
-    }
-
-    void OnHint(const RealSenseID::EnrollStatus hint) override
-    {
-        std::cout << "on_hint: hint: " << hint << std::endl;
-    }
-};
-
-const char* user_id = "John";
-MyEnrollClbk enroll_clbk;
-Status status = authenticator.Enroll(enroll_clbk, user_id);
-```
-
-#### Authenticate
-
-Single authentication attempt: Starts device, runs neural network algorithm, generates faceprints and compares them to all enrolled faceprints in database.
-Finally, returns whether the authentication was forbidden or allowed with enrolled user id. During the authentication process, device will send a status _hint_ to the callback provided by application.
-Full list of the _hint_ can be found in [AuthenticationStatus.h](./include/RealSenseID/).
-
-This operation can be further configured by passing [DeviceConfig](include/RealSenseID/DeviceConfig.h) struct to the `FaceAuthenticator::SetDeviceConfig(const DeviceConfig&)` function.
-See the [Device Configuration](#device-configuration-api) below for details.
-
-```cpp
-class MyAuthClbk : public RealSenseID::AuthenticationCallback
-{
-public:
-    // Called when authentication result is available.
-    // If there are multiple faces it will be called for each face detected.
-    void OnResult(const RealSenseID::AuthenticateStatus status, const char* user_id) override
-    {
-        if (status == RealSenseID::AuthenticateStatus::Success)
-        {
-            std::cout << "******* Authenticate success.  user_id: " << user_id << " *******" << std::endl;
-        }
-        else
-        {
-            std::cout << "on_result: status: " << status << std::endl;
-        }
-    }
-
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
-    {
-        std::cout << "on_hint: hint: " << hint << std::endl;
-    }
-};
-
-MyAuthClbk auth_clbk;
-Status status = authenticator.Authenticate(auth_clbk);
-```
-
-#### Cancel
-
-Stops current operation (Enrollment/Authenticate/AuthenticateLoop).
-
-```cpp
-authenticator.Cancel();
-```
-
-#### RemoveAll
-
-Removes all enrolled users in the device database.
-
-```cpp
-bool success = authenticator.RemoveAll();
-```
-
-#### RemoveUser
-
-Removes a specific user from the device database.
-
-```cpp
-const char* user_id = "John";
-bool success = authenticator.RemoveUser(user_id);
-```
-
-### Device Configuration API
-
-The device operation can be configured by passing the [DeviceConfig](include/RealSenseID/DeviceConfig.h) struct to the `FaceAuthenticator::SetDeviceConfig(const DeviceConfig&)` function.
-
-The various options and default values are described below:
-
-```cpp
-struct RSID_API DeviceConfig
-{
-    /**
-     * @enum CameraRotation
-     * @brief Camera rotation.
-     */
-    enum class CameraRotation
-    {
-        Rotation_0_Deg = 0, // default
-        Rotation_180_Deg = 1,
-        Rotation_90_Deg = 2,
-        Rotation_270_Deg = 3
-    };
-
-    /**
-     * @enum SecurityLevel
-     * @brief SecurityLevel to allow. (default is Low)
-     */
-    enum class SecurityLevel
-    {
-        High = 0,   // high security level
-        Medium = 1, // medium security level
-        Low = 2,    // low security level
-    };
-
-    /**
-     * @enum AlgoFlow
-     * @brief Algorithms which will be used during authentication
-     */
-    enum class AlgoFlow
-    {
-        All = 0,               // spoof and face detection
-        FaceDetectionOnly = 1, // face detection only (default)
-        SpoofOnly = 2,         // spoof only
-        RecognitionOnly = 3    // recognition only
-    };
-
-    enum class DumpMode
-    {
-        None = 0,        // default
-        CroppedFace = 1, // sends snapshot of the detected face (as jpg)
-        FullFrame = 2,   // sends left+right raw frames with metadata
-    };
-
-    /**
-     * @brief Defines three confidence levels used by the Matcher during authentication.
-     *
-     * Each confidence level corresponds to a different set of thresholds, providing the user with the flexibility to
-     * choose between three different False Positive Rates (FPR): Low, Medium, and High. Currently, all sets use the
-     * thresholds associated with the "Low" confidence level by default.
-     */
-    enum class MatcherConfidenceLevel
-    {
-        High = 0,
-        Medium = 1,
-        Low = 2 // default
-    };
-
-    /**
-     * @brief Defines the policy for frontal face orientation.
-     *
-     * - None: No restriction on face angle (default).
-     * - Moderate: Allow some deviation from a forward-facing orientation.
-     * - Strict: The face should be directly oriented toward the camera.
-     */
-    enum class FrontalFacePolicy
-    {
-        None = 0, // default
-        Moderate = 1,
-        Strict = 2
-    };
-
-    CameraRotation camera_rotation = CameraRotation::Rotation_0_Deg;
-    SecurityLevel security_level = SecurityLevel::Low;
-    AlgoFlow algo_flow = AlgoFlow::FaceDetectionOnly;
-    DumpMode dump_mode = DumpMode::None;
-    MatcherConfidenceLevel matcher_confidence_level = MatcherConfidenceLevel::Low;
-    FrontalFacePolicy frontal_face_policy = FrontalFacePolicy::None;
-
-    /**
-     * @brief Specifies the maximum number of consecutive spoofing attempts allowed before the device rejects further
-     * authentication requests.
-     *
-     * Setting this value to 0 disables the check, which is the default behavior. If the number of consecutive spoofing
-     * attempts reaches max_spoofs, the device will reject any subsequent authentication requests. To reset this
-     * behavior and allow further authentication attempts, the device must be unlocked using the Unlock() API call.
-     */
-    unsigned char max_spoofs = 0;
-
-    /**
-     * @brief Controls whether GPIO toggling is enabled(1) or disabled(0, default) after successful authentication.
-     *
-     * Set this value to 1 to enable toggling of GPIO pin #1 after each successful authentication.
-     * Set this value to 0 to disable GPIO toggling (default).
-     *
-     * @note Only GPIO pin #1 can be toggled. Other values are not supported.
-     */
-    int gpio_auth_toggling = 0;
-};
-```
-
-Notes:
-
-- If `SetDeviceConfig()` never called, the device will use the default values described above.
-- `CameraRotation` enable the algorithm to work with a rotated device. For preview rotation to match, you'll need to define previewConfig.portraitMode accordingly (see Preview section).
-
-The following example configures the device to only detect spoofs (instead of the default full authentication):
-
-```cpp
-...
-using namespace RealSenseID;
-// config with default options except for the algo flow which is set to spoof only
-DeviceConfig device_config;
-device_config.algo_flow = AlgoFlow::SpoofOnly;
-auto status = authenticator->SetDeviceConfig(device_config);
-```
-
-### DeviceController Interface
-
-#### Connect / Disconnect
-
-```cpp
-RealSenseID::DeviceController deviceController;
-Status connect_status = deviceController.Connect({"COM4"});
-deviceController.Disconnect();
-```
-
-#### Reboot
-
-Resets and reboots device.
-
-```cpp
-bool success = deviceController.Reboot();
-```
-
-### Preview Interface
-
-Currently 704x1280 or 1056x1920 RGB formats is available.
-
-#### Preview Configuration
-
-```cpp
-/**
- * Preview modes
- */
-enum class PreviewMode
-{
-    MJPEG_1080P = 0, // default
-    MJPEG_720P = 1,
-    RAW10_1080P = 2,
-};
-
-/**
- * Preview configuration
- */
-struct RSID_API PreviewConfig
-{
-    DeviceType deviceType = DeviceType::F45x;           // device type
-    int cameraNumber = -1;                              // attempt to auto detect by default
-    PreviewMode previewMode = PreviewMode::MJPEG_1080P; // RAW10 requires custom fw support
-    bool portraitMode = true; // change Preview to get portrait or landscape images. Algo process is defined separately in DeviceConfig::CameraRotation
-    bool rotateRaw = false;   // enables rotation of raw data in portraitMode == true
-};
-```
-
-Notes:
-
-- The rotation used by algorithm is based only on DeviceConfig.camera_rotation attribute.
-- Indepedently, you can choose each preview mode (except raw) to be portrait or non-portrait.
-- Keep in mind that if you want preview to match algo:
-  CameraRotation::Rotation_0_Deg and CameraRotation::Rotation_180_Deg is for portraitMode == true.(default)
-  CameraRotation::Rotation_90_Deg and CameraRotation::Rotation_270_Deg is for portraitMode == false.
-
-#### Sensor Timestamps
-
-Access to the sensor timestamps (in milliseconds).
-To enable it on Windows please turn on the Metadata option in when using the SDK installer.
-The installer create specific dedicated registry entry to be present for each unique RealSenseID device.
-For Linux, Metadata is supported on kernels 4.16 + only.
-
-The timestamps can be acquired in OnPreviewImageReady under _image.metadata.timestamp_ . Other metadata isn't valid.
-
-more information about metadata on Windows can be found in [microsoft uvc documetnation](https://docs.microsoft.com/en-us/windows-hardware/drivers/stream/uvc-extensions-1-5#2211-still-image-capture--method-2)
-
-#### StartPreview
-
-Starts preview. Callback function that is provided as parameter will be invoked for a newly arrived image and can be rendered by your application.
-
-```cpp
-class PreviewRender : public RealSenseID::PreviewImageReadyCallback
-{
-public:
-	void OnPreviewImageReady(const Image& image)
-	{
-		// Callback will be used to provide RGB preview image (for RAW10_1080P PreviewMode - raw converted to RGB).
-	}
-
-    	void OnSnapshotImageReady(const Image& image) // Not mandatory. To enable it, see Device Configuration API.
-	{
-		// Callback will be used to provide images destined to be dumped (cropped/full). See DeviceConfig::DumpMode attribute.
-		// Raw formatted images will be raised by this function.
-	}
-};
-
-PreviewRender image_clbk;
-Preview preview;
-bool success = preview.StartPreview(image_clbk);
-```
-
-#### PausePreview
-
-Pause preview.
-
-```cpp
-bool success = preview.PausePreview();
-```
-
-#### ResumePreview
-
-Resumes the preview.
-
-```cpp
-bool success = preview.ResumePreview();
-```
-
-#### StopPreview
-
-Stops preview.
-
-```cpp
-bool success = preview.StopPreview();
-```
 
 ## Operation Modes
 
 ### Device Mode
 
-Device Mode is a set of APIs enable the user to enroll and authenticate on the device itself,
+Device Mode is a set of APIs that enable the user to enroll and authenticate on the device itself,
 including database management and matching on the device.
 
 ### Host Mode
@@ -497,93 +187,23 @@ on the host or the server. In this mode the RealSenseID camera is used as a Feat
 The API provides a 'matching' function which predicts whether two faceprints belong to the same person,
 thus enabling the user to scan their database for similar users.
 
-#### ExtractFaceprintsForAuth
+## Project Structure
 
-Extracts faceprints from a face, in the device, and sends them to the host.
-Uses 'Authentication Flow' to eliminate spoof attempts and verify a face was detected.
+The SDK is organized into the following directories:
 
-```cpp
-// extract faceprints using authentication flow
-class FaceprintsAuthClbk : public RealSenseID::AuthFaceprintsExtractionCallback
-{
-public:
-    void OnResult(const RealSenseID::AuthenticateStatus status, const Faceprints* faceprints) override
-    {
-        std::cout << "result: " << status << std::endl;
-        s_extraction_status = status;
-        // if status was success pass '_faceprints' to user
-    }
+| Directory                                    | Contents                                                        |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| [include/RealSenseID/](include/RealSenseID/) | Public C++ API headers                                          |
+| [samples/](samples/)                         | Code samples in C++, C, Python, and C#                          |
+| [tools/](tools/)                             | Command-line tools: `rsid-cli`, `rsid-fw-update`, `rsid-viewer` |
+| [wrappers/](wrappers/)                       | Language bindings: C, Python, C#, Android                       |
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
-    {
-        std::cout << "hint: " << hint << std::endl;
-    }
-};
-
-FaceprintsAuthClbk clbk;
-auto status = authenticator->ExtractFaceprintsForAuth(clbk);
-```
-
-#### ExtractFaceprintsForEnroll
-
-Extracts faceprints from a face, in the device, and sends them to the host.
-Uses 'Enrollment Flow' to verify face-pose is correct and that a face was detected.
-
-```cpp
-// extract faceprints using enrollment flow
-class MyEnrollServerClbk : public RealSenseID::EnrollmentCallback
-{
-    const char* _user_id = nullptr;
-
-public:
-    explicit MyEnrollServerClbk(const char* user_id) : _user_id {user_id}
-    {
-    }
-
-    void OnResult(const RealSenseID::EnrollStatus status, const Faceprints* faceprints) override
-    {
-        std::cout << "result: " << status << "for user: " << _user_id << std::endl;
-        s_extraction_status = status;
-        // if status was success pass '_faceprints' to user
-    }
-
-    void OnProgress(const RealSenseID::FacePose pose) override
-    {
-        std::cout << "pose: " << pose << std::endl;
-    }
-
-    void OnHint(const RealSenseID::EnrollStatus hint) override
-    {
-        std::cout << "hint: " << hint << std::endl;
-    }
-};
-
-MyEnrollServerClbk enroll_clbk {user_id.c_str()};
-auto status = authenticator->ExtractFaceprintsForEnroll(enroll_clbk);
-```
-
-#### MatchFaceprints
-
-Matches two faceprints to each other and calculates a prediction of whether they belong to
-the same person.
-
-```cpp
-// match extracted faceprints to the ones in the user-managed database
-for (auto& db_item : db)
-{
-    auto match_result = authenticator->MatchFaceprints(scanned_faceprints, db_item.faceprints, updated_faceprints);
-    if (match_result.success)
-    {
-        std::cout << "Match succeeded with user id: " << db_item.id << std::endl;
-        break;
-    }
-}
-```
+For the full C++ API reference — including `FaceAuthenticator`, `DeviceController`, `Preview`, and `FwUpdater` — see [include/RealSenseID/README.md](include/RealSenseID/README.md).
 
 ## Secure Communication
 
 The library can be compiled in secure mode. Once paired with the device, all communications will be protected.
-If you wish to get back to non-secure communcations, you must first unpair your device.
+If you wish to get back to non-secure communications, you must first unpair your device.
 
 Cryptographic algorithms that are used for session protection:
 
@@ -599,7 +219,7 @@ To enable secure mode, the host should perform the following steps:
 - Pair with the device to enable secure communication. Pairing is performed once using the FaceAuthenticator API.
 - Implement a SignatureCallback. Signing and verifying is done with the ECDSA P-256 (secp256-r1) keys. Please see the pairing sample on how to pair the device and use keys.
 
-Each request (a call to one of the main API functions listed below) from the host to the device starts a new encrypted session, which performs an ECDH P-256 (secp256-r1) key exchange to create the shared secret for encrypting the current session.
+Each request from the host to the device starts a new encrypted session, which performs an ECDH P-256 (secp256-r1) key exchange to create the shared secret for encrypting the current session.
 
 ```cpp
 class MySigClbk : public RealSenseID::SignatureCallback
@@ -633,8 +253,6 @@ Status pair_status = authenticator.Pair(host_pubkey, host_pubkey_signature, devi
 
 ## Python API
 
-Starting with version 0.22.0 we provide python API:
-
 ```python
 """
 Authenticate example
@@ -656,6 +274,87 @@ Please visit the python [samples](./samples/python) page for details and samples
 
 This project is licensed under Apache 2.0 license. Relevant license info can be found in "License Notices" folder.
 
-## Intel RealSense ID F450 and F455 Architecture Diagram
+## RealSense™ ID Device Architecture Diagram
 
-![plot](./docs/F450_Architecture.png?raw=true)
+```mermaid
+graph TB
+    %% ───────────── Host Layer ─────────────
+    subgraph HOST["🖥️ Host Application"]
+        APP["Your Application<br/>C / C++ / C# / Python / Android"]
+    end
+
+    %% ───────────── SDK Layer ─────────────
+    subgraph SDK["📦 RealSenseID SDK"]
+        direction TB
+
+        subgraph API["API Modules"]
+            direction LR
+            PREVIEW["🎥 Preview<br/>Start · Stop"]
+            AUTH["🔐 FaceAuthenticator<br/>Enroll · Authenticate<br/>Remove Users"]
+            DEVICE["⚙️ DeviceController<br/>Connect · Reboot<br/>Query FW Version"]
+            FWUPDATE["🔧 FwUpdater<br/>Update · CheckCompatibility"]
+        end
+
+        subgraph COMMS["Communication Layer"]
+            direction LR
+            PROTOCOL["📡 Serial Protocol<br/>Packet Handling"]
+            SERIAL["🔌 Serial Interface<br/>UART · USB CDC"]
+        end
+
+        AUTH --> COMMS
+        DEVICE --> COMMS
+        FWUPDATE --> COMMS
+    end
+
+    %% ───────────── Device Layer ─────────────
+    subgraph DEVICE_HW["🧠 Device (On-Chip)"]
+        direction TB
+
+        subgraph DRIVERS["Communication Drivers"]
+            direction LR
+            UVC["UVC Video<br/>USB Preview Stream"]
+            USB_CDC["USB CDC"]
+            UART_DRV["UART"]
+        end
+
+        SECURE["🛡️ Secure Element · OTP<br/>Secure Boot · Secure FW Upgrade"]
+
+        subgraph AI["Face Authentication Pipeline"]
+            direction LR
+            DETECT["👁️ Face Detection<br/>Face Detection · Landmarks"]
+            SPOOF["🎭 Anti-Spoofing"]
+            RECOG["✅ Face Recognition"]
+            TEMPLATES["📁 Template<br/>Management"]
+        end
+
+        subgraph HW["Hardware"]
+            direction LR
+            SENSORS["📷 IR Sensors<br/>Left + Right"]
+            NPU["⚡ NPU"]
+            FLASH["💾 Secured Flash"]
+        end
+
+        DRIVERS --> SECURE
+        SECURE --> AI
+        AI --> HW
+        TEMPLATES <-.->|"Read/Write"| FLASH
+    end
+
+    %% ───────────── Connections between layers ─────────────
+    APP -->|"Enroll · Authenticate · Preview · Device Control"| API
+    SERIAL -->|"USB / UART"| DRIVERS
+    PREVIEW -->|"UVC Preview"| UVC
+
+    %% ───────────── Styles ─────────────
+    classDef hostStyle fill:#4A90D9,stroke:#2E6BA6,color:#fff,font-weight:bold
+    classDef sdkStyle fill:#2EA67A,stroke:#1E7A5A,color:#fff,font-weight:bold
+    classDef deviceStyle fill:#E8833A,stroke:#C06A2E,color:#fff,font-weight:bold
+    classDef hwStyle fill:#7B61C2,stroke:#5A45A0,color:#fff,font-weight:bold
+
+    class APP hostStyle
+    class PREVIEW,AUTH,DEVICE,FWUPDATE sdkStyle
+    class PROTOCOL,SERIAL sdkStyle
+    class UVC,USB_CDC,UART_DRV,SECURE deviceStyle
+    class DETECT,SPOOF,RECOG,TEMPLATES deviceStyle
+    class SENSORS,NPU,FLASH hwStyle
+```

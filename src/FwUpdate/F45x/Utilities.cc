@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 #include "Utilities.h"
 #include "../Common/Common.h"
 #include "Logger.h"
@@ -63,8 +63,13 @@ struct UfifFile
     uint32_t sig;
     uint16_t ver;
     uint16_t entryN;
-    uint8_t otpEncryptVersion;
-    uint8_t rsv[23];
+    uint8_t otpEncryptVersion; // OTP encryption key slot version (F450 only; 0=SKU1, 1=SKU2)
+    uint8_t uispPackVersion;   // uisp pack format version (ICATCH_UISP_PACK_VER)
+    uint8_t dbVersion;         // on-device face DB format version (ICATCH_DB_VER)
+    uint8_t configVersion;     // auth config struct version (ICATCH_CONFIG_VER)
+    uint8_t deviceType;        // target device: 0=F450, 1=F460, 2=F500
+    uint8_t secureBootEnabled; // CSS-signed firmware (F460/F500 only; always 0 for F450)
+    uint8_t rsv[18];
 };
 
 static bool UfifCheckHeader(const UfifFile& header)
@@ -99,7 +104,7 @@ static std::vector<UfifEntry> UfifReadHeader(std::ifstream& file, UfifFile& head
     return rv;
 }
 
-uint8_t ParseUfifToOtpEncryption(const std::string& path)
+static UfifFile ReadUfifFile(const std::string& path)
 {
     std::ifstream ifile(path, std::ios::binary);
     if (!ifile)
@@ -110,11 +115,23 @@ uint8_t ParseUfifToOtpEncryption(const std::string& path)
 
     UfifFile header;
     UfifReadHeader(ifile, header);
-    return header.otpEncryptVersion;
+    return header;
 }
+
+UfifMetadata ParseUfifMetadata(const std::string& path)
+{
+    auto h = ReadUfifFile(path);
+    return {h.otpEncryptVersion, h.dbVersion, h.configVersion, h.deviceType, h.secureBootEnabled};
+}
+
 
 ModuleVector ParseUfifToModules(const std::string& path, const uint32_t block_size)
 {
+    if (block_size == 0)
+    {
+        throw std::runtime_error("block_size must be > 0");
+    }
+
     std::ifstream ifile(path, std::ios::binary);
     if (!ifile)
     {

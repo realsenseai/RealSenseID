@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 3.14)
 
 include(CSharpUtilities)
 
@@ -41,7 +41,8 @@ add_executable(
     DatabaseSerializer.cs
     FrameDumper.cs
     AuthSettingsInput.xaml
-    AuthSettingsInput.xaml.cs    
+    AuthSettingsInput.xaml.cs
+    ModeToVisibilityConverter.cs
 	"${ASSEMBLY_INFO_FILE}"
     Properties/Resources.Designer.cs
     Properties/Resources.resx
@@ -49,7 +50,8 @@ add_executable(
     Properties/Settings.settings
     "FONT AWESOME 5 FREE-REGULAR-400.OTF"
     "FONT AWESOME 5 FREE-SOLID-900.OTF"
-    icon.ico
+    logo.png
+    icon.ico    
 	sn.txt)
 
 # add fonts as content
@@ -61,6 +63,10 @@ set_property(SOURCE "FONT AWESOME 5 FREE-SOLID-900.OTF" PROPERTY VS_COPY_TO_OUT_
 set_property(SOURCE "sn.txt" PROPERTY VS_TOOL_OVERRIDE "Content")
 set_property(SOURCE "sn.txt" PROPERTY VS_COPY_TO_OUT_DIR "PreserveNewest")
 
+# add logo as content
+set_property(SOURCE "logo.png" PROPERTY VS_TOOL_OVERRIDE "Content")
+set_property(SOURCE "logo.png" PROPERTY VS_COPY_TO_OUT_DIR "PreserveNewest")
+
 
 
 
@@ -71,6 +77,10 @@ endif()
 
 if(RSID_PREVIEW)
     add_definitions(-DRSID_PREVIEW)
+endif()
+
+if(RSID_ONE2ONE)
+    add_definitions(-DRSID_ONE2ONE)
 endif()
 
 # designer files
@@ -109,7 +119,7 @@ csharp_set_xaml_cs_properties(
 set_property(SOURCE App.xaml PROPERTY VS_XAML_TYPE "ApplicationDefinition")
 
 # cs project flags
-set_property(TARGET ${EXE_NAME} PROPERTY VS_DOTNET_TARGET_FRAMEWORK_VERSION "v4.7.2")
+set_property(TARGET ${EXE_NAME} PROPERTY VS_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
 set_property(TARGET ${EXE_NAME} PROPERTY WIN32_EXECUTABLE TRUE)
 set_property(TARGET ${EXE_NAME} PROPERTY VS_GLOBAL_ApplicationIcon ${CMAKE_CURRENT_SOURCE_DIR}/icon.ico)
 

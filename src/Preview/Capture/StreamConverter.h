@@ -40,6 +40,7 @@ private:
     StreamAttributes _attributes;
     Image _result_image;
     bool _portrait_mode;
+    bool _skip_decode;
 #ifdef _WIN32
     std::unique_ptr<JPEGWICDecoder> _jpeg_decoder = nullptr;
 #else

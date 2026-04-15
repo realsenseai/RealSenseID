@@ -1,27 +1,27 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
 #include "RealSenseIDExports.h"
 #include <string>
 
-#define RSID_VER_MAJOR 1
+#define RSID_VER_MAJOR 3
 #define RSID_VER_MINOR 3
-#define RSID_VER_PATCH 1
+#define RSID_VER_PATCH 2
 #define RSID_VERSION   (RSID_VER_MAJOR * 10000 + RSID_VER_MINOR * 100 + RSID_VER_PATCH)
 
-// Compatible firmware versions for found on F4x devices
+// Compatible firmware versions for found on F4xx devices
 // Major in device must be == _VER_MAJOR defined here
 // Minor in device must be >= _VER_MINOR defined here
 
 // F450
-#define RSID_FW45x_VER_MAJOR 8
-#define RSID_FW45x_VER_MINOR 0
+#define RSID_FW45x_VER_MAJOR 9
+#define RSID_FW45x_VER_MINOR 11
 
-// F460
-#define RSID_FW46x_VER_MAJOR 1
-#define RSID_FW46x_VER_MINOR 4
+// F500
+#define RSID_FW46x_VER_MAJOR 2
+#define RSID_FW46x_VER_MINOR 11
 
 namespace RealSenseID
 {
@@ -29,7 +29,7 @@ enum class DeviceType
 {
     Unknown,
     F45x,
-    F46x
+    F50x
 };
 
 RSID_API const char* Description(DeviceType deviceType);

@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using rsid;
 using System;
@@ -22,12 +22,15 @@ namespace rsid_wrapper_csharp
     class ImageHelper
     {
         // return (result 1d array, width, height, result bitmap)
-        // if the results exceeds maxSize, rescale and return the rescaled byte array
-        public static Tuple<byte[], int, int, Bitmap> ToBgr(string filename, int maxSize)
+        // if resize is true  rescale and return the rescaled byte array
+        public static Tuple<byte[], int, int, Bitmap> ToBgr(string filename, bool resize)
         {
             var bmp = new Bitmap(filename);
             FixOrientation(bmp);
-            bmp = ResizeToDim(bmp, 320);
+            if (resize)
+            {
+                bmp = ResizeToDim(bmp, 320);
+            }
             var arr = ToBgr(bmp);
             return Tuple.Create(arr, bmp.Width, bmp.Height, bmp);
         }
@@ -66,7 +69,7 @@ namespace rsid_wrapper_csharp
             return resultBitmap;
         }
 
-        private static byte[] ToBgr(Bitmap image)
+        public static byte[] ToBgr(Bitmap image)
         {
             var bpp = 3;
             var outStride = image.Width * bpp;
@@ -118,8 +121,8 @@ namespace rsid_wrapper_csharp
             return new System.Windows.Controls.Image
             {
                 Source = bitmap,
-                Width = bitmap.Width,
-                Height = bitmap.Height
+                Width = bitmap.Width * 2,
+                Height = bitmap.Height * 2
             };
         }
 

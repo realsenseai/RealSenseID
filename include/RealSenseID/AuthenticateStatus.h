@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -15,6 +15,10 @@ enum class RSID_API AuthenticateStatus
     Success,
     NoFaceDetected,
     FaceDetected,
+    PersonNotFound,
+    PersonFound,
+    BarcodeNotFound,
+    BarcodeFound,
     LedFlowSuccess,
     FaceIsTooFarToTheTop,
     FaceIsTooFarToTheBottom,
@@ -27,17 +31,20 @@ enum class RSID_API AuthenticateStatus
     FaceIsNotFrontal,
     CameraStarted,
     CameraStopped,
-    MaskDetectedInHighSecurity,
     Spoof,
     Forbidden,
     DeviceError,
     Failure,
     TooManySpoofs,
     InvalidFeatures,
-    AmbiguiousFace,
+    AmbiguousFace,
     /// Accessories
     Sunglasses = 50,
-    CovidMask,
+    MedicalMask,
+    /// Distance
+    FaceTooFar = 61,
+    CalcDistanceFailure = 62,
+    FaceTooClose = 63,
     /// serial statuses
     Ok = 100,
     Error,

@@ -2,7 +2,7 @@
 
 """
 License: Apache 2.0. See LICENSE file in root directory.
-Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 """
 
 import argparse
@@ -30,14 +30,10 @@ def build_arg_parser():
     options = arg_parser.add_argument_group('Options')
     options.add_argument('-h', '--help', action='help', default=SUPPRESS,
                          help='Show this help message and exit.')
-    options.add_argument("-p", "--port", help="Device port", required=True, type=str)
+    options.add_argument("-p", "--port", help="Device port (auto-detected if not specified)", required=False, type=str, default=None)
     options.add_argument("-f", "--file", help="Firmware binary file path", required=True, type=pathlib.Path)
     options.add_argument("--dry-run", help="Show summary report and exit", required=False, default=False,
                          action='store_true')
-    options.add_argument("--skip-online", help="Skip checking for latest version online",
-                         required=False, default=False,
-                         action='store_true')
-
     options.add_argument("--force-version", help="Force update even if host version mismatch",
                          action='store_true',
                          default=False)
@@ -67,51 +63,34 @@ Summary Report
     * Recognition module version: {bin_recognition_module_version}
 
 * Compatibility Matrix
-──────────────────────               
+──────────────────────
+              * Security: {security_compat}
+                          {security_msg}
               * Host:   {host_compat}
                         {host_msg}
 """
 
-update_remote_template = """
-Update Checker Report: {update_note}
-
-* Current Software
-──────────────────
- You are currently running
-          * Firmware: {local_fw_version}
-          * SDK/Host: {local_sw_version}
-
-* Remote Software
-──────────────────
- The following software is available online:
-          * Firmware: {remote_fw_version}
-          * SDK/Host: {remote_sw_version}
-      * Download URL: {release_url}
- * Release notes URL: {release_notes_url}
-
-"""
-
 COMPATIBLE = "✓ Compatible"
 NOT_COMPATIBLE = "𐄂 Not Compatible"
-RUNNING_LATEST = "✓ You are running the latest software"
-NEWER_AVAILABLE = "𐄂 Newer software is available online"
 
 if __name__ == '__main__':
     args = build_arg_parser().parse_args()
 
+    if args.port is None:
+        devices = rsid_py.discover_devices()
+        if not devices:
+            print("Error: No rsid devices found.")
+            exit(1)
+        if len(devices) > 1:
+            print("Error: Multiple devices found. Use --port to specify one.")
+            for d in devices:
+                print(f"  {d.serial_port}")
+            exit(1)
+        args.port = devices[0].serial_port
+        print(f"Using device on port {args.port}")
+
     update_progress: float = 0
     pbar = None
-
-    if not args.skip_online:
-        update_available, local_info, remote_info = rsid_py.UpdateChecker.is_update_available(args.port)
-
-        print(update_remote_template.format(local_fw_version=local_info.fw_version_str,
-                                            local_sw_version=local_info.sw_version_str,
-                                            remote_fw_version=remote_info.fw_version_str,
-                                            remote_sw_version=remote_info.sw_version_str,
-                                            release_url=remote_info.release_url,
-                                            release_notes_url=remote_info.release_notes_url,
-                                            update_note=NEWER_AVAILABLE if update_available else RUNNING_LATEST))
 
     def progress_callback(progress: float) -> None:
         global update_progress
@@ -126,6 +105,7 @@ if __name__ == '__main__':
     with rsid_py.FWUpdater(str(args.file), args.port) as updater:
         fw_file_info = updater.get_firmware_bin_info()
         device_fw_info = updater.get_device_firmware_info()        
+        security_compat, security_msg = updater.is_security_compatible()
         host_compat, host_msg = updater.is_host_compatible(device_fw_info.device_type)
 
         print(report_template.format(
@@ -137,10 +117,15 @@ if __name__ == '__main__':
             recognition_module_version=device_fw_info.recognition_version,
             bin_firmware_version=fw_file_info.fw_version,
             bin_recognition_module_version=fw_file_info.recognition_version,
+            security_compat=COMPATIBLE if security_compat else NOT_COMPATIBLE, security_msg=security_msg,
             host_compat=COMPATIBLE if host_compat else NOT_COMPATIBLE, host_msg=host_msg))
 
         if args.dry_run:
             exit(0)
+
+        if not security_compat:
+            print(f"Aborting: {security_msg}")
+            exit(1)
 
         print("Started update process...")
         if tqdm_installed:

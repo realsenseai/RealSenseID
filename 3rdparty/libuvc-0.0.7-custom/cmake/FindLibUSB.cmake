@@ -9,6 +9,10 @@ target LibUSB::LibUSB
 
 # TODO Append parts for Version compasion and REQUIRED support
 
+if (ANDROID)
+  return()
+endif ()
+
 if (MSVC OR MINGW)
   message(FATAL_ERROR "libuvc/libusb is not currently supported for RSID Windows.")
 endif()

@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -48,16 +48,12 @@ public:
 
 
     /**
-     * Check SKU version used in the binary file and answer whether the device supports it.
-     *
-     * @param[in] settings Firmware update settings.
-     * @param[in] binPath Path to the firmware binary file.
-     * @param[out] expectedSkuVer SKU version of the firmware binary file.
-     * @param[out] deviceSkuVer SKU version of the device.
-     * @return True if expectedSkuVer == deviceSkuVer and false otherwise.
+     * Performs all compatibility checks (SKU, DB version, device type) in a single device
+     * connection and a single bspver query. Populates all fields of info.
+     * Returns true only if all checks pass; individual fields in info can be inspected for details.
      */
-    virtual bool IsSkuCompatible(const FwUpdater::Settings& settings, const char* binPath, int& expectedSkuVer,
-                                 int& deviceSkuVer) const = 0;
+    virtual bool CheckCompatibility(const FwUpdater::Settings& settings, const char* binPath,
+                                    FwUpdater::FwCompatibilityInfo& info) const = 0;
 };
 
 } // namespace Impl

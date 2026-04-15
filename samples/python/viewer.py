@@ -2,12 +2,13 @@
 
 """
 License: Apache 2.0. See LICENSE file in root directory.
-Copyright(c) 2020-2024 Intel Corporation. All Rights Reserved.
+Copyright(c) 2020-2024 RealSense, Inc. All Rights Reserved.
 """
 
 import argparse
 import copy
 import ctypes
+import logging
 import os
 import pathlib
 import queue
@@ -16,6 +17,8 @@ import sys
 import threading
 import time
 import traceback
+from dataclasses import dataclass
+from typing import Optional
 
 import PIL
 
@@ -46,35 +49,81 @@ except ImportError as ex:
 
 import rsid_py
 
-print('Version: ' + rsid_py.__version__)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+logger.info(f'Version: {rsid_py.__version__}')
 
 # globals
 WINDOW_NAME = 'RealSenseID'
 
 
+# Configuration
+@dataclass
+class ViewerConfig:
+    """Configuration for the RealSenseID viewer application."""
+    port: Optional[str] = None
+    camera_index: int = -1
+    dump_mode: rsid_py.DumpMode = rsid_py.DumpMode.Disable
+    device_type: Optional[rsid_py.DeviceType] = None
+    max_queue_size: int = 10
+    video_update_interval_ms: int = 15
+    reset_delay_ms: int = 3000
+    snapshot_display_duration_ms: int = 5000
+    canvas_default_width: int = int(720 / 1.5)
+    canvas_default_height: int = int(1280 / 1.5) + 80
+
+    def __post_init__(self):
+        if self.dump_mode in [rsid_py.DumpMode.CroppedFace, rsid_py.DumpMode.FullFrame]:
+            self.dumps_dir = pathlib.Path('.') / 'dumps'
+            self.dumps_dir.mkdir(parents=True, exist_ok=True)
+            if not self.dumps_dir.exists():
+                raise RuntimeError('Unable to create dumps directory.')
+
+
+# Custom exceptions
+class PreviewError(Exception):
+    """Exception raised for preview-related errors."""
+    pass
+
+
+class DeviceError(Exception):
+    """Exception raised for device-related errors."""
+    pass
+
+
 class Controller(threading.Thread):
+    """Controller thread for managing device preview and authentication."""
+
     status_msg: str
     detected_faces: list[dict]  # array of (faces, success, user_name)
     running: bool = True
     window_init: bool = False
-    image_q: queue.Queue = queue.Queue()
-    snapshot_q: queue.Queue = queue.Queue()
 
-    def __init__(self, port: str, camera_index: int, device_type: rsid_py.DeviceType, dump_mode: rsid_py.DumpMode):
+    def __init__(self, config: ViewerConfig):
         super().__init__()
-        self.preview = None
+        self.config = config
+        self.preview: Optional[rsid_py.Preview] = None
         self.status_msg = ''
         self.detected_faces = []
-        self.port = port
-        self.camera_index = camera_index
-        self.device_type = device_type
-        self.dump_mode = dump_mode
+        self.port = config.port
+        self.camera_index = config.camera_index
+        self.device_type = config.device_type
+        self.dump_mode = config.dump_mode
+        self.image_q: queue.Queue = queue.Queue(maxsize=config.max_queue_size)
+        self.snapshot_q: queue.Queue = queue.Queue(maxsize=config.max_queue_size)
+
         if self.dump_mode in [rsid_py.DumpMode.CroppedFace, rsid_py.DumpMode.FullFrame]:
             self.status_msg = '-- Dump Mode --' \
                 if rsid_py.DumpMode.FullFrame == self.dump_mode else '-- Cropped Face --'
-            (pathlib.Path('.') / 'dumps').mkdir(parents=True, exist_ok=True)
-            if not (pathlib.Path('.') / 'dumps').exists():
-                raise RuntimeError('Unable to create dumps directory.')
+            logger.info(f'Running in {self.status_msg} mode')
 
     def reset(self):
         self.status_msg = ''
@@ -94,23 +143,61 @@ class Controller(threading.Thread):
     def on_progress(self, p: rsid_py.FacePose):
         self.status_msg = f'on_progress {p}'
 
-    def on_hint(self, hint: rsid_py.AuthenticateStatus | rsid_py.EnrollStatus | None):
+    def on_hint(self, hint: rsid_py.AuthenticateStatus | rsid_py.EnrollStatus | None, frame_score: float):
         self.status_msg = f'{hint}'
 
     def on_faces(self, faces: list[rsid_py.FaceRect], timestamp: int):
         self.status_msg = f'detected {len(faces)} face(s)'
         self.detected_faces = [{'face': f} for f in faces]
 
+    def on_face_cropped_image(self, buffer: memoryview, width: int, height: int, timestamp: int):
+        """Callback for cropped face images during authentication/enrollment."""
+        logger.debug(f"on_face_cropped_image called - width: {width}, height: {height}, ts: {timestamp}")
+
+        try:
+            if self.dump_mode == rsid_py.DumpMode.CroppedFace:
+                # Convert memoryview to numpy array
+                arr = np.asarray(buffer, dtype=np.uint8)
+                # Reshape to RGB image (buffer is RGB format)
+                array2d = arr.reshape((height, width, 3))
+
+                # Convert to PIL Image
+                pil_image = Image.fromarray(array2d, 'RGB')
+
+                # Save to dumps directory
+                dump_path = pathlib.Path('.') / 'dumps'
+                dump_path.mkdir(parents=True, exist_ok=True)
+
+                # Create filename with timestamp
+                file_name = f'cropped_face_{timestamp}.png'
+                file_path = dump_path / file_name
+
+                try:
+                    pil_image.save(file_path, 'PNG')
+                    logger.info(f'Cropped face saved to: {file_path.absolute()}')
+                except Exception as e:
+                    logger.error(f"Failed to save cropped face: {e}")
+
+                # Also put in queue for GUI display
+                try:
+                    self.snapshot_q.put_nowait(pil_image)
+                except queue.Full:
+                    logger.debug("Snapshot queue full, dropping snapshot")
+        except Exception as e:
+            logger.exception(f"Error processing cropped face image: {e}")
+
     def auth_example(self):
         with rsid_py.FaceAuthenticator(self.device_type, self.port) as f:
             self.status_msg = "Authenticating.."
-            f.authenticate(on_hint=self.on_hint, on_result=self.on_result, on_faces=self.on_faces)
+            f.authenticate(on_hint=self.on_hint, on_result=self.on_result, on_faces=self.on_faces,
+                           on_face_cropped_image=self.on_face_cropped_image)
 
     def enroll_example(self, user_id=f'user_{int(time.time() / 1000)}'):
         with rsid_py.FaceAuthenticator(self.port) as f:
             self.status_msg = "Enroll.."
             f.enroll(on_hint=self.on_hint, on_progress=self.on_progress,
-                     on_result=self.on_result, on_faces=self.on_faces, user_id=user_id)
+                     on_result=self.on_result, on_faces=self.on_faces, user_id=user_id,
+                     on_face_cropped_image=self.on_face_cropped_image)
 
     def remove_all_users(self):
         with rsid_py.FaceAuthenticator(self.port) as f:
@@ -132,86 +219,139 @@ class Controller(threading.Thread):
             buffer = memoryview(image.get_buffer())
             arr = np.asarray(buffer, dtype=np.uint8)
             array2d = arr.reshape((image.height, image.width, -1))
-            self.image_q.put(array2d.copy())
-        except Exception:
-            print("Exception")
-            print("-" * 60)
-            traceback.print_exc(file=sys.stdout)
-            print("-" * 60)
+            # Use put_nowait to avoid blocking if queue is full
+            try:
+                self.image_q.put_nowait(array2d.copy())
+            except queue.Full:
+                # Drop frame if queue is full
+                logger.debug("Image queue full, dropping frame")
+        except ValueError as e:
+            logger.error(f"Error reshaping image buffer: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error processing image: {e}")
 
     def on_snapshot(self, image: rsid_py.Image):
+        logger.debug(f"on_snapshot called - dump_mode: {self.dump_mode}")
         try:
             if self.dump_mode == rsid_py.DumpMode.FullFrame:
                 buffer = copy.copy(bytearray(image.get_buffer()))
                 dump_path = (pathlib.Path('.') / 'dumps' / f'timestamp-{image.metadata.timestamp}')
                 dump_path.mkdir(parents=True, exist_ok=True)
-                print(f"frame metadata: "
-                      f"ts: {image.metadata.timestamp}, "
-                      f"status: {image.metadata.status}, "
-                      f"sensor_id: {image.metadata.sensor_id}, "
-                      f"exposure: {image.metadata.exposure}, "
-                      f"gain: {image.metadata.gain}, "
-                      f"led: {image.metadata.led}")
+                logger.info(f"Frame metadata: ts={image.metadata.timestamp}, "
+                            f"status={image.metadata.status}, "
+                            f"sensor_id={image.metadata.sensor_id}, "
+                            f"exposure={image.metadata.exposure}, "
+                            f"gain={image.metadata.gain}, "
+                            f"led={image.metadata.led}")
                 file_name = (f'{image.metadata.timestamp}-{image.metadata.status}-{image.metadata.sensor_id}-'
                              f'{image.metadata.exposure}-{image.metadata.gain}.w10')
                 file_path = dump_path / file_name
                 with open(file_path, 'wb') as fd:
                     fd.write(buffer)
-                print(f'RAW File saved to: {file_path.absolute()}')
+                logger.info(f'RAW file saved to: {file_path.absolute()}')
             elif self.dump_mode == rsid_py.DumpMode.CroppedFace:
                 buffer = image.get_buffer()
                 # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.frombytes
                 # https://pillow.readthedocs.io/en/stable/handbook/writing-your-own-image-plugin.html#the-raw-decoder
-                image = Image.frombytes('RGB', (image.width, image.height), buffer, 'raw',
-                                        'RGB', 0, 1)
-                self.snapshot_q.put(image)
-        except Exception:
-            print("Exception")
-            print("-" * 60)
-            traceback.print_exc(file=sys.stdout)
-            print("-" * 60)
+                pil_image = Image.frombytes('RGB', (image.width, image.height), buffer, 'raw',
+                                            'RGB', 0, 1)
+
+                # Save to dumps directory
+                dump_path = pathlib.Path('.') / 'dumps'
+                dump_path.mkdir(parents=True, exist_ok=True)
+
+                # Create filename with timestamp
+                timestamp = int(time.time() * 1000)  # milliseconds
+                file_name = f'cropped_face_{timestamp}.png'
+                file_path = dump_path / file_name
+
+                try:
+                    pil_image.save(file_path, 'PNG')
+                    logger.info(f'Cropped face saved to: {file_path.absolute()}')
+                except Exception as e:
+                    logger.error(f"Failed to save cropped face: {e}")
+
+                # Also put in queue for GUI display
+                try:
+                    self.snapshot_q.put_nowait(pil_image)
+                except queue.Full:
+                    logger.debug("Snapshot queue full, dropping snapshot")
+        except Exception as e:
+            logger.exception(f"Unexpected error processing snapshot: {e}")
 
     def start_preview(self):
-        preview_cfg = rsid_py.PreviewConfig()
-        preview_cfg.device_type = self.device_type
-        preview_cfg.camera_number = self.camera_index
-        if self.dump_mode == rsid_py.DumpMode.FullFrame:
-            preview_cfg.preview_mode = rsid_py.PreviewMode.RAW10_1080P  # In dump mode, we can use RAW10
-        elif self.dump_mode in [rsid_py.DumpMode.CroppedFace, rsid_py.DumpMode.Disable]:
-            preview_cfg.preview_mode = rsid_py.PreviewMode.MJPEG_1080P
+        try:
+            preview_cfg = rsid_py.PreviewConfig()
+            preview_cfg.device_type = self.device_type
+            preview_cfg.camera_number = self.camera_index
+            if self.dump_mode == rsid_py.DumpMode.FullFrame:
+                preview_cfg.preview_mode = rsid_py.PreviewMode.RAW10_1080P  # In dump mode, we can use RAW10
+            elif self.dump_mode in [rsid_py.DumpMode.CroppedFace, rsid_py.DumpMode.Disable]:
+                preview_cfg.preview_mode = rsid_py.PreviewMode.MJPEG_1080P
 
-        self.preview = rsid_py.Preview(preview_cfg)
-        self.preview.start(preview_callback=self.on_image, snapshot_callback=self.on_snapshot)
+            self.preview = rsid_py.Preview(preview_cfg)
+            self.preview.start(preview_callback=self.on_image, snapshot_callback=self.on_snapshot)
+            logger.info(f"Preview started for camera {self.camera_index}")
+        except Exception as e:
+            logger.exception(f"Failed to start preview: {e}")
+            raise PreviewError(f"Failed to start preview: {e}") from e
+
+    def change_camera(self, camera_index: int, device_type: Optional[rsid_py.DeviceType] = None):
+        self.camera_index = camera_index
+        if device_type is not None:
+            self.device_type = device_type
+        try:
+            if self.preview is not None:
+                self.preview.stop()
+                logger.info("Previous preview stopped")
+        except Exception as e:
+            logger.exception(f"Error stopping preview: {e}")
+        self.start_preview()
+        self.status_msg = f"Camera {self.camera_index}"
 
     def run(self):
-        self.start_preview()
-        while self.running:
-            time.sleep(0.1)
-        self.preview.stop()
-        self.preview = None
-        print("Controller thread exited")
+        try:
+            self.start_preview()
+            while self.running:
+                time.sleep(0.1)
+        except Exception as e:
+            logger.exception(f"Error in controller thread: {e}")
+        finally:
+            logger.info("Stopping preview...")
+            if self.preview is not None:
+                try:
+                    self.preview.stop()
+                    self.preview = None
+                except Exception as e:
+                    logger.exception(f"Error stopping preview: {e}")
+            logger.info("Controller thread exited")
 
     def exit_thread(self):
         self.status_msg = 'Bye.. :)'
         self.running = False
-        time.sleep(0.5)
+        time.sleep(1)
 
 
 class GUI(tk.Tk):
+    """GUI application for RealSenseID viewer."""
+
     def __init__(self, controller: Controller):
         super().__init__(className=WINDOW_NAME)
-        self.scaled_image = None
-        self.image = None
-        self.snapshot_image = None
+        self.scaled_image: Optional[ImageTk.PhotoImage] = None
+        self.image: Optional[Image.Image] = None
+        self.snapshot_image: Optional[ImageTk.PhotoImage] = None
         self.controller = controller
-        self.reset_handle = None
-        self.video_update_handle = None
-        self.resize_handle = None
-        self.snapshot_handle = None
+        self.reset_handle: Optional[str] = None
+        self.video_update_handle: Optional[str] = None
+        self.resize_handle: Optional[str] = None
+        self.snapshot_handle: Optional[str] = None
+
+        self.devices: list = []
+        self.device_combo: Optional[ttk.Combobox] = None
 
         self.title(f'{WINDOW_NAME} ({str(controller.device_type).split('.')[-1]})')
-        max_w = int(720 / 1.5)
-        max_h = int(1280 / 1.5) + 80
+        max_w = controller.config.canvas_default_width
+        max_h = controller.config.canvas_default_height
         self.geometry(f"{max_w}x{max_h}")
         self.minsize(int(max_w / 1.5), int(max_h / 2.5))
         self.maxsize(max_w, max_h)
@@ -256,9 +396,13 @@ class GUI(tk.Tk):
                                         command=self.remove_all_users)
         self.delete_button.grid(row=0, column=2, padx=(5, 5), pady=(5, 5), ipady=5, sticky="nsew")
 
+        # Camera selection combo box
+        self.init_camera_combo()
+
         self.button_frame.grid_columnconfigure(0, weight=1)
         self.button_frame.grid_columnconfigure(1, weight=1)
         self.button_frame.grid_columnconfigure(2, weight=1)
+        self.button_frame.grid_columnconfigure(3, weight=1)
 
         style = ttk.Style(self)
         if sys.platform.startswith('win'):
@@ -270,11 +414,55 @@ class GUI(tk.Tk):
         self.after(50, self.update_video)
         self.after(200, self.update_app_icon)
 
+    def init_camera_combo(self):
+        self.devices = rsid_py.discover_devices()
+
+        # If no devices – show a disabled combo
+        if not self.devices:
+            self.device_combo = ttk.Combobox(
+                self.button_frame,
+                state="disabled",
+                values=["No devices"]
+            )
+            self.device_combo.current(0)
+            self.device_combo.grid(row=0, column=3, padx=(5, 5), pady=(5, 5), sticky="nsew")
+            return
+
+        items = []
+        selected_index = 0
+        for i, d in enumerate(self.devices):
+            items.append(f"Cam {d.camera_number}")
+            if d.serial_port == self.controller.port and d.camera_number == self.controller.camera_index:
+                selected_index = i
+
+        self.device_combo = ttk.Combobox(
+            self.button_frame,
+            width = 6,
+            state="readonly",
+            values=items
+        )
+        self.device_combo.grid(row=0, column=3, padx=(5, 5), pady=(5, 5), sticky="nsew")
+        self.device_combo.current(selected_index)
+        self.device_combo.bind("<<ComboboxSelected>>", self.on_camera_selected)
+
+    def on_camera_selected(self, event=None):
+        if not self.devices or self.device_combo is None:
+            return
+
+        idx = self.device_combo.current()
+        if idx < 0 or idx >= len(self.devices):
+            return
+
+        chosen = self.devices[idx]
+        self.controller.port = chosen.serial_port
+        self.controller.change_camera(chosen.camera_number, chosen.device_type)
+        self.title(f'{WINDOW_NAME} ({str(self.controller.device_type).split(".")[-1]})')
+
     def update_app_icon(self):
         # Window Icon
         icon = Image.new("RGB", (50, 50))
         op = ImageDraw.Draw(icon)
-        op.text((10, 0), "R", font_size=40, fill="white")
+        op.text((10, 0), "R", font_size=40, fill="green")
         self.icon = ImageTk.PhotoImage(icon)
         self.wm_iconphoto(False, self.icon)
 
@@ -297,7 +485,7 @@ class GUI(tk.Tk):
     def reset_later(self):
         if self.reset_handle is not None:
             self.after_cancel(self.reset_handle)
-        self.reset_handle = self.after(3 * 1000, self.controller_reset)
+        self.reset_handle = self.after(self.controller.config.reset_delay_ms, self.controller_reset)
 
     def controller_reset(self):
         self.controller.reset()
@@ -336,9 +524,9 @@ class GUI(tk.Tk):
             while not self.controller.image_q.empty():
                 array2d = self.controller.image_q.get()
             try:
-                self.image = Image.fromarray(array2d, mode="RGB")
-            except PIL.UnidentifiedImageError:
-                print("Preview Error: UnidentifiedImageError")
+                self.image = Image.fromarray(array2d)
+            except PIL.UnidentifiedImageError as e:
+                logger.error(f"Preview error: UnidentifiedImageError - {e}")
 
         self.canvas.update_idletasks()
         canvas_h = self.canvas.winfo_reqheight()
@@ -393,7 +581,8 @@ class GUI(tk.Tk):
 
                 if self.snapshot_handle is not None:
                     self.after_cancel(self.snapshot_handle)
-                self.snapshot_handle = self.after(5000, self.clear_snapshot)
+                self.snapshot_handle = self.after(self.controller.config.snapshot_display_duration_ms,
+                                                  self.clear_snapshot)
                 self.canvas.itemconfig(self.canvas_snapshot_image_id, image=self.snapshot_image)
                 self.canvas.itemconfig(self.canvas_snapshot_image_id, state='normal')
 
@@ -409,7 +598,8 @@ class GUI(tk.Tk):
         if self.video_update_handle is not None:
             self.after_cancel(self.video_update_handle)
         if self.controller.running:
-            self.video_update_handle = self.after(15, self.update_video)
+            self.video_update_handle = self.after(self.controller.config.video_update_interval_ms,
+                                                  self.update_video)
 
     @staticmethod
     def render_face_rect(face, image):
@@ -438,7 +628,8 @@ class GUI(tk.Tk):
         self.quit()
 
 
-def main():
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments."""
     arg_parser = argparse.ArgumentParser(prog='viewer', add_help=False)
     options = arg_parser.add_argument_group('Options')
     options.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
@@ -446,73 +637,103 @@ def main():
     options.add_argument('-p', '--port', help='Device port. Will detect first device '
                                               'port if not specified.', type=str)
     options.add_argument('-c', '--camera', help='Camera number. -1 for autodetect.', type=int, default=-1)
+    options.add_argument('-v', '--verbose', help='Enable verbose logging.', action='store_true')
 
     group = arg_parser.add_mutually_exclusive_group(required=False)
     group.add_argument('-d', '--dump', help='Dump mode.', action='store_true')
     group.add_argument('-r', '--crop', help='Cropped Face mode.', action='store_true')
 
-    args = arg_parser.parse_args()
-    port = None
-    camera_index = args.camera
+    return arg_parser.parse_args()
 
-    if args.port is None:
+
+def discover_device(port: Optional[str]) -> tuple[str, rsid_py.DeviceType, int]:
+    """Discover device or use provided port."""
+    if port is None:
         devices = rsid_py.discover_devices()
         if len(devices) == 0:
-            print('Error: No rsid devices were found and no port was specified.')
-            exit(1)
-        port = devices[0]
+            raise DeviceError('No rsid devices were found and no port was specified.')
+
+        chosen = devices[0]
+        device_type = chosen.device_type
+        camera_index = chosen.camera_number
+        port = chosen.serial_port
     else:
-        port = args.port
+        device_type = rsid_py.discover_device_type(port)
+        camera_index = -1
 
-    device_type = rsid_py.discover_device_type(port)
+    logger.info(f'Using port: {port} ({device_type})')
+    logger.info(f'Using camera index: {camera_index}')
+    return port, device_type, camera_index
 
-    print(f'Using self.port: {port} ({device_type})')
-    print(f'Using CAMERA_INDEX: {camera_index}')
+
+def configure_device(device_type: rsid_py.DeviceType, port: str, args: argparse.Namespace) -> rsid_py.DumpMode:
+    """Configure device with specified dump mode."""
+    dump_mode = rsid_py.DumpMode.Disable
 
     if args.dump:
-        print("-" * 60)
-        print('NOTE: Running in DUMP mode.')
-        print('      While in dump mode, you need to use a separate rsid-client to initiate authentication for the'
-              '      RAW image to appear on this viewer.')
-        print("-" * 60)
+        logger.warning("-" * 60)
+        logger.warning('NOTE: Running in DUMP mode.')
+        logger.warning('      While in dump mode, you need to use a separate rsid-client to initiate authentication')
+        logger.warning('      for the RAW image to appear on this viewer.')
+        logger.warning("-" * 60)
+        dump_mode = rsid_py.DumpMode.FullFrame
+    elif args.crop:
+        dump_mode = rsid_py.DumpMode.CroppedFace
 
-    config = None
-    with rsid_py.FaceAuthenticator(device_type, str(port)) as f:
-        try:
+    try:
+        with rsid_py.FaceAuthenticator(device_type, str(port)) as f:
             config = copy.copy(f.query_device_config())
-            if args.dump:
-                config.dump_mode = rsid_py.DumpMode.FullFrame
-                f.set_device_config(config)
-            elif args.crop:
-                config.dump_mode = rsid_py.DumpMode.CroppedFace
-                f.set_device_config(config)
-            else:
-                config.dump_mode = rsid_py.DumpMode.Disable
-                f.set_device_config(config)
-        except Exception as e:
-            print("Exception")
-            print("-" * 60)
-            traceback.print_exc(file=sys.stdout)
-            print("-" * 60)
-            os._exit(1)
-        finally:
+            config.dump_mode = dump_mode
+            f.set_device_config(config)
             f.disconnect()
+        return dump_mode
+    except Exception as e:
+        logger.exception(f"Failed to configure device: {e}")
+        raise DeviceError(f"Failed to configure device: {e}") from e
 
-    def signal_handler(sig, frame):
-        gui.exit_app()
 
-    signal.signal(signal.SIGINT, signal_handler)
+def main():
+    args = parse_arguments()
 
-    controller = Controller(port=port, camera_index=camera_index, device_type=device_type, dump_mode=config.dump_mode)
-    controller.daemon = True
-    controller.start()
-    gui = GUI(controller)
-    gui.mainloop()
+    # Set logging level based on verbose flag
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    try:
+        port, device_type, camera_index = discover_device(args.port)
+        dump_mode = configure_device(device_type, port, args)
+
+        # Create configuration
+        viewer_config = ViewerConfig(
+            port=port,
+            camera_index=camera_index if args.camera == -1 else args.camera,
+            device_type=device_type,
+            dump_mode=dump_mode
+        )
+
+        def signal_handler(sig, frame):
+            logger.info("Received interrupt signal")
+            gui.exit_app()
+
+        signal.signal(signal.SIGINT, signal_handler)
+
+        controller = Controller(viewer_config)
+        controller.daemon = True
+        controller.start()
+        gui = GUI(controller)
+        gui.mainloop()
+
+    except DeviceError as e:
+        logger.error(f"Device error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.exception(f"Unexpected error: {e}")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
     if sys.platform.startswith('win'):
-        app_id = 'intel.realsenseid.viewer.1.0'
+        app_id = 'realsenseai.realsenseid.viewer.1.0'
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)

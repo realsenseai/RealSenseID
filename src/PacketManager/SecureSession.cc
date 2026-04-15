@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #include "SecureSession.h"
 #include "PacketSender.h"
@@ -26,14 +26,17 @@ SecureSession::SecureSession(SignCallback sign_callback, VerifyCallback verify_c
 
 SecureSession::~SecureSession()
 {
-    try
+    if (_serial)
     {
-        LOG_DEBUG(LOG_TAG, "Close session");
-        auto ignored = HandleCancelFlag(); // cancel if requested but not handled yet
-        (void)ignored;
-    }
-    catch (...)
-    {
+        try
+        {
+            LOG_DEBUG(LOG_TAG, "Close session");
+            auto ignored = HandleCancelFlag(); // cancel if requested but not handled yet
+            (void)ignored;
+        }
+        catch (...)
+        {
+        }
     }
 }
 
@@ -76,6 +79,8 @@ SerialStatus SecureSession::Start(SerialConnection* serial_conn)
         throw std::runtime_error("SecureSession: serial connection is null");
     }
     _serial = serial_conn;
+    _serial->Clear(); // clear any leftovers from previous sessions
+
     _last_sent_seq_number = 0;
     _last_recv_seq_number = 0;
 
@@ -179,12 +184,7 @@ SerialStatus SecureSession::RecvPacket(SerialPacket& packet)
 // Receive packet, decrypt and try to convert to FaPacket
 SerialStatus SecureSession::RecvFaPacket(FaPacket& packet, timeout_t timeout)
 {
-    auto status = RecvPacketImpl(packet, timeout);
-    if (status != SerialStatus::Ok)
-    {
-        return status;
-    }
-    return IsFaPacket(packet) ? SerialStatus::Ok : SerialStatus::RecvUnexpectedPacket;
+    return RecvPacketImpl(packet, timeout);
 }
 
 SerialStatus SecureSession::RecvFaPacket(FaPacket& packet)
@@ -195,12 +195,7 @@ SerialStatus SecureSession::RecvFaPacket(FaPacket& packet)
 // Receive packet, decrypt and try to convert to DataPacket
 SerialStatus SecureSession::RecvDataPacket(DataPacket& packet)
 {
-    auto status = RecvPacketImpl(packet, PacketSender::DefaultRecvTimeout);
-    if (status != SerialStatus::Ok)
-    {
-        return status;
-    }
-    return IsDataPacket(packet) ? SerialStatus::Ok : SerialStatus::RecvUnexpectedPacket;
+    return RecvPacketImpl(packet, PacketSender::DefaultRecvTimeout);
 }
 
 RealSenseID::PacketManager::SerialStatus SecureSession::PairImpl(SerialConnection* serial_conn, const char* ecdsaHostPubKey,
@@ -233,7 +228,6 @@ RealSenseID::PacketManager::SerialStatus SecureSession::PairImpl(SerialConnectio
         return SerialStatus::SecurityError;
     }
 
-    assert(IsDataPacket(packet));
 
     ::memcpy(ecdsaDevicePubKey, packet.Data().data, ECC_P256_KEY_SIZE_BYTES);
 
@@ -348,6 +342,23 @@ void SecureSession::Cancel()
 {
     LOG_DEBUG(LOG_TAG, "Cancel requested.");
     _cancel_required = true;
+}
+
+SerialStatus SecureSession::SendCancel()
+{
+    if (!_serial)
+    {
+        LOG_ERROR(LOG_TAG, "Cannot send cancel, no serial connection");
+        return SerialStatus::SendFailed;
+    }
+
+    LOG_DEBUG(LOG_TAG, "Sending cancel..");
+    return _serial->SendBytes(Commands::face_cancel, ::strlen(Commands::face_cancel));
+}
+
+void SecureSession::OnConnectionClosed()
+{
+    _serial = nullptr;
 }
 
 SerialStatus SecureSession::HandleCancelFlag()

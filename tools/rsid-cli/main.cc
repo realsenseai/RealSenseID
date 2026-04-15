@@ -1,87 +1,107 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 // Command line interface to RealSenseID device.
-// Usage: rsid-cli <port> <usb/uart>.
 
 #include "RealSenseID/FaceAuthenticator.h"
 #include "RealSenseID/Preview.h"
 #include "RealSenseID/DeviceController.h"
 #include "RealSenseID/DiscoverDevices.h"
-#include "RealSenseID/SignatureCallback.h"
 #include "RealSenseID/Version.h"
 #include "RealSenseID/Faceprints.h"
-#include "RealSenseID/UpdateChecker.h"
+#include <algorithm>
+#include <cerrno>
 #include <chrono>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <fstream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <memory>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
 #include <map>
+#include <memory>
+#include <optional>
 #include <set>
+#include <sstream>
+#include <string>
 #include <thread>
-#include <algorithm>
-#include <cerrno>
+#include <vector>
+
 #ifdef _WIN32
 #include <direct.h> // for _mkdir
 #else
 #include <sys/stat.h> // for mkdir
 #endif
 
-
 #ifdef RSID_SECURE
 #include "secure_mode_helper.h"
-// signer object to store public keys of the host and device
 static RealSenseID::Examples::SignHelper s_signer;
 #endif // RSID_SECURE
 
-// map of user-id->faceprint_pair to demonstrate faceprints feature.
 static std::map<std::string, RealSenseID::Faceprints> s_user_faceprint_db;
-
-// last faceprint auth extract status
 static RealSenseID::AuthenticateStatus s_last_auth_faceprint_status;
+static RealSenseID::DeviceInfo s_device_info;
 
-// last faceprint enroll extract status
-static RealSenseID::EnrollStatus s_last_enroll_faceprint_status;
-
-struct Args
+RealSenseID::SerialConfig get_serial_config()
 {
-    RealSenseID::SerialConfig serial_config;
-#ifdef RSID_SECURE
-    bool unpair = false; // perform pair + unpair + exit
-#endif
-};
+    RealSenseID::SerialConfig config;
+    config.port = s_device_info.serialPort;
+    return config;
+}
 
-
-// Create FaceAuthenticator (after successfully connecting it to the device).
-// If failed to connect, exit(1)
-std::unique_ptr<RealSenseID::FaceAuthenticator> CreateAuthenticator(const RealSenseID::SerialConfig& serial_config)
+// Create a connected DeviceController, or print an error and return nullopt.
+std::optional<RealSenseID::DeviceController> ConnectDeviceController()
 {
-    auto device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
+    auto config = get_serial_config();
+    RealSenseID::DeviceController controller(s_device_info.deviceType);
+    auto status = controller.Connect(config);
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "Failed connecting to port " << config.port << " status:" << status << "\n";
+        return std::nullopt;
+    }
+    return controller;
+}
+
+// Create a connected FaceAuthenticator, or exit on failure.
+std::unique_ptr<RealSenseID::FaceAuthenticator> CreateAuthenticator()
+{
+    auto config = get_serial_config();
+    if (s_device_info.deviceType == RealSenseID::DeviceType::Unknown)
+    {
+        std::cout << "Unknown device type for port " << config.port << "\n";
+        std::exit(1);
+    }
 #ifdef RSID_SECURE
-    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>(&s_signer, device_type);
+    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>(&s_signer, s_device_info.deviceType);
 #else
-    if (device_type == RealSenseID::DeviceType::Unknown)
-    {
-        std::cout << "Unkown device type for port " << serial_config.port << std::endl;
-        std::exit(1);
-    }
-    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>(device_type);
+    auto authenticator = std::make_unique<RealSenseID::FaceAuthenticator>(s_device_info.deviceType);
 #endif // RSID_SECURE
-    auto connect_status = authenticator->Connect(serial_config);
-    if (connect_status != RealSenseID::Status::Ok)
+    auto status = authenticator->Connect(config);
+    if (status != RealSenseID::Status::Ok)
     {
-        std::cout << "Failed connecting to port " << serial_config.port << " status:" << connect_status << std::endl;
+        std::cout << "Failed connecting to port " << config.port << " status:" << status << "\n";
         std::exit(1);
     }
-    std::cout << "Connected to device" << std::endl;
     return authenticator;
 }
 
+// Run a continuous detection loop: start detection on a background thread,
+// wait for Enter, then cancel and join.
+template <typename DetectMethod, typename Callback>
+void run_detection_loop(const char* label, DetectMethod method, Callback callback)
+{
+    auto authenticator = CreateAuthenticator();
+    std::cout << "Running " << label << " (Press Enter to stop)...\n" << std::flush;
+    std::thread t([&] {
+        auto status = (authenticator.get()->*method)(callback, true);
+        std::cout << label << " ended with status: " << status << std::endl;
+    });
+    std::cin.get();
+    authenticator->Cancel();
+    t.join();
+    std::cout << "\n";
+}
 
 #ifdef RSID_PREVIEW
 
@@ -93,14 +113,9 @@ public:
         std::cout << "\rframe #" << image.number << ": " << image.width << "x" << image.height << " (" << image.size << " bytes)"
                   << std::endl;
 
-        // Enable this code to enable saving images as ppm files
-        //
-        //    std::string filename = "outputimage" +  std::to_string(image.number) + ".ppm";
-        //    FILE* f1 = fopen(filename.c_str(), "wb");
-        //    fprintf(f1, "P6\n%d %d\n255\n", image.width, image.height);
-        //    fwrite(image.buffer, 1, image.size, f1);
-        //    fclose(f1);
-        //
+        // uncomment to save as jpeg
+        // std::ofstream ofs("frame_" + std::to_string(image.number) + ".jpg");
+        // ofs.write(reinterpret_cast<const char*>(image.buffer), image.size);
     }
 };
 
@@ -109,7 +124,6 @@ static std::unique_ptr<PreviewRender> s_preview_callback;
 
 #endif
 
-
 class MyEnrollClbk : public RealSenseID::EnrollmentCallback
 {
     using FacePose = RealSenseID::FacePose;
@@ -117,13 +131,11 @@ class MyEnrollClbk : public RealSenseID::EnrollmentCallback
 public:
     void OnResult(const RealSenseID::EnrollStatus status) override
     {
-        // std::cout << "on_result: status: " << status << std::endl;
         std::cout << "  *** Result " << status << std::endl;
     }
 
     void OnProgress(const FacePose pose) override
     {
-        // find next pose that required(if any) and display instruction where to look
         std::cout << "  *** Detected Pose " << pose << std::endl;
         _poses_required.erase(pose);
         if (!_poses_required.empty())
@@ -133,31 +145,36 @@ public:
         }
     }
 
-    void OnHint(const RealSenseID::EnrollStatus hint) override
+    void OnHint(const RealSenseID::EnrollStatus hint, float frameScore) override
     {
         std::cout << "  *** Hint " << hint << std::endl;
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        std::cout << "  *** OnFaceCroppedImage width:" << width << " height:" << height << " ts:" << ts << std::endl;
     }
 
 private:
     std::set<RealSenseID::FacePose> _poses_required = {FacePose::Center, FacePose::Left, FacePose::Right};
 };
 
-void do_enroll(const RealSenseID::SerialConfig& serial_config, const char* user_id)
+void do_enroll(const char* user_id)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     MyEnrollClbk enroll_clbk;
     auto status = authenticator->Enroll(enroll_clbk, user_id);
     if (status != RealSenseID::Status::Ok)
     {
-        std::cout << "Status: " << status << std::endl << std::endl;
+        std::cout << "Status: " << status << "\n" << std::endl;
     }
 }
 
-// Authentication callback
 class MyAuthClbk : public RealSenseID::AuthenticationCallback
 {
 public:
-    void OnResult(const RealSenseID::AuthenticateStatus status, const char* user_id) override
+    void OnResult(const RealSenseID::AuthenticateStatus status, const char* user_id, short score) override
     {
         if (status == RealSenseID::AuthenticateStatus::Success)
         {
@@ -165,348 +182,445 @@ public:
         }
         else
         {
-            std::cout << "on_result: status: " << status << std::endl;
+            std::cout << "  *** Result: status: " << status << std::endl;
         }
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
-        std::cout << "on_hint: hint: " << hint << std::endl;
+        std::cout << "  *** Hint " << hint << std::endl;
+    }
+
+    void OnFaceCroppedImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
+                            const unsigned int ts) override
+    {
+        std::cout << "  *** OnFaceCroppedImage width:" << width << " height:" << height << " ts:" << ts << std::endl;
+    }
+
+    void OnFaceDistances(const std::vector<double>& distances, const unsigned int ts) override
+    {
+        std::cout << "  *** OnFaceDistances " << distances.size() << " distances\n";
+        for (size_t i = 0; i < distances.size(); i++)
+        {
+            std::cout << "Face " << (i + 1) << ": " << distances[i] << " cm ";
+        }
+        std::cout << std::endl;
     }
 };
 
-void do_authenticate(const RealSenseID::SerialConfig& serial_config)
+void do_authenticate()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     MyAuthClbk auth_clbk;
     auto status = authenticator->Authenticate(auth_clbk);
     if (status != RealSenseID::Status::Ok)
     {
-        std::cout << "Status: " << status << std::endl << std::endl;
+        std::cout << "Status: " << status << "\n" << std::endl;
     }
 }
 
-void do_authenticate_loop(const RealSenseID::SerialConfig& serial_config, int iter, int delay_ms)
+void do_authenticate_loop()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
-    MyAuthClbk auth_clbk;
-    for (auto i = 0; i < iter; i++)
-    {
-        std::cout << "Authentications attempt: " << i << " of " << iter << std::endl << std::endl;
-        auto status = authenticator->Authenticate(auth_clbk);
-        if (status != RealSenseID::Status::Ok)
+    auto authenticator = CreateAuthenticator();
+    std::cout << "Running authenticate loop (Press Enter to stop)...\n" << std::flush;
+    std::thread t([&] {
+        MyAuthClbk auth_clbk;
+        auto status = authenticator->AuthenticateLoop(auth_clbk);
+        std::cout << "Authenticate loop ended with status: " << status << std::endl;
+    });
+    std::cin.get();
+    authenticator->Cancel();
+    t.join();
+    std::cout << "\n";
+}
+
+void do_detect_persons()
+{
+    auto person_callback = [](const std::vector<RealSenseID::PersonRect>& persons, unsigned int ts,
+                              RealSenseID::AuthenticateStatus status) {
+        std::cout << "  *** Detected " << persons.size() << " person(s) at ts=" << ts << " status=" << status << std::endl;
+        for (size_t i = 0; i < persons.size(); i++)
         {
-            std::cout << "Status: " << status << std::endl;
-            std::cout << "Stoping authenticate loop" << std::endl;
-            break;
+            const auto& p = persons[i];
+            std::cout << "      Person[" << i << "]: x=" << p.x << " y=" << p.y << " w=" << p.w << " h=" << p.h << " id=" << p.id
+                      << " distance=" << p.distance << " body_part=" << static_cast<int>(p.body_part) << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-    }
+        return true;
+    };
+
+    run_detection_loop("person detection", &RealSenseID::FaceAuthenticator::DetectPersons, person_callback);
 }
 
-void remove_users(const RealSenseID::SerialConfig& serial_config)
+void do_detect_poses()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto pose_callback = [](const std::vector<RealSenseID::PersonPose>& poses, unsigned int ts, RealSenseID::AuthenticateStatus status) {
+        std::cout << "  *** Detected " << poses.size() << " pose(s) at ts=" << ts << " status=" << status << std::endl;
+        for (size_t i = 0; i < poses.size(); i++)
+        {
+            const auto& p = poses[i];
+            std::cout << "      Pose[" << i << "]: bbox(x=" << p.x << " y=" << p.y << " w=" << p.w << " h=" << p.h << ")" << std::endl;
+            std::cout << "      Keypoints:" << std::endl;
+            for (int j = 0; j < NUM_POSE_LANDMARKS; j++)
+            {
+                std::cout << "        [" << j << "]: (" << p.lm_x[j] << ", " << p.lm_y[j] << ") score=" << p.lm_score[j] << std::endl;
+            }
+        }
+        return true;
+    };
+
+    run_detection_loop("pose detection", &RealSenseID::FaceAuthenticator::DetectPoses, pose_callback);
+}
+
+void do_detect_body_parts()
+{
+    auto body_part_callback = [](const std::vector<RealSenseID::PersonRect>& body_parts, unsigned int ts,
+                                 RealSenseID::AuthenticateStatus status) {
+        std::cout << "  *** Detected " << body_parts.size() << " body part(s) at ts=" << ts << " status=" << status << std::endl;
+        const char* body_part_names[] = {"Person", "Foot", "Arm", "Leg", "Hand", "Torso"};
+        for (size_t i = 0; i < body_parts.size(); i++)
+        {
+            const auto& bp = body_parts[i];
+            int part_idx = static_cast<int>(bp.body_part);
+            const char* part_name =
+                (part_idx >= 0 && part_idx < static_cast<int>(std::size(body_part_names))) ? body_part_names[part_idx] : "Unknown";
+            std::cout << "      BodyPart[" << i << "]: x=" << bp.x << " y=" << bp.y << " w=" << bp.w << " h=" << bp.h << " id=" << bp.id
+                      << " distance=" << bp.distance << " type=" << part_name << std::endl;
+        }
+        return true;
+    };
+
+    run_detection_loop("body part detection", &RealSenseID::FaceAuthenticator::DetectBodyParts, body_part_callback);
+}
+
+void do_decode_barcodes()
+{
+    auto barcode_callback = [](const std::vector<std::string>& barcodes, unsigned int ts, RealSenseID::AuthenticateStatus status) {
+        std::cout << "  *** Decoded " << barcodes.size() << " barcode(s) at ts=" << ts << " status=" << status << std::endl;
+        for (size_t i = 0; i < barcodes.size(); i++)
+        {
+            const auto& barcode = barcodes[i];
+            std::cout << "      Barcode[" << i << "]: \"" << barcode << "\" (length=" << barcode.length() << ")" << std::endl;
+        }
+        return true;
+    };
+
+    run_detection_loop("barcode decoding", &RealSenseID::FaceAuthenticator::DecodeBarcodes, barcode_callback);
+}
+
+void remove_users()
+{
+    auto authenticator = CreateAuthenticator();
     auto auth_status = authenticator->RemoveAll();
-    std::cout << "Final status:" << auth_status << std::endl << std::endl;
+    std::cout << "Final status:" << auth_status << "\n" << std::endl;
 }
 
 #ifdef RSID_SECURE
-void pair_device(const RealSenseID::SerialConfig& serial_config)
+void pair_device()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     char* host_pubkey = (char*)s_signer.GetHostPubKey();
     char host_pubkey_signature[64] = {0};
     char device_pubkey[64] = {0};
     auto pair_status = authenticator->Pair(host_pubkey, host_pubkey_signature, device_pubkey);
     if (pair_status != RealSenseID::Status::Ok)
     {
-        std::cout << "Failed pairing with device" << std::endl;
+        std::cout << "Failed pairing with device\n";
         return;
     }
     s_signer.UpdateDevicePubKey((unsigned char*)device_pubkey);
-    std::cout << "Final status:" << pair_status << std::endl << std::endl;
+    std::cout << "Final status:" << pair_status << "\n" << std::endl;
 }
 
-void unpair_device(const RealSenseID::SerialConfig& serial_config)
+void unpair_device()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     auto unpair_status = authenticator->Unpair();
     if (unpair_status != RealSenseID::Status::Ok)
     {
-        std::cout << "Failed to unpair with device" << std::endl;
+        std::cout << "Failed to unpair with device\n";
         return;
     }
-    std::cout << "Final status:" << unpair_status << std::endl << std::endl;
+    std::cout << "Final status:" << unpair_status << "\n" << std::endl;
 }
 #endif // RSID_SECURE
 
-// SetDeviceConfig
-void set_device_config(const RealSenseID::SerialConfig& serial_config, const RealSenseID::DeviceConfig& device_config)
+std::optional<RealSenseID::DeviceConfig> query_device_config()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
-    auto status = authenticator->SetDeviceConfig(device_config);
-    std::cout << "Status: " << status << std::endl << std::endl;
+    auto authenticator = CreateAuthenticator();
+    RealSenseID::DeviceConfig config;
+    auto status = authenticator->QueryDeviceConfig(config);
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "Failed to query device config: " << status << "\n" << std::endl;
+        return std::nullopt;
+    }
+    return config;
 }
 
-void get_device_config(const RealSenseID::SerialConfig& serial_config)
+int rotation_to_degrees(RealSenseID::DeviceConfig::CameraRotation rot)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
-    RealSenseID::DeviceConfig device_config;
-    auto status = authenticator->QueryDeviceConfig(device_config);
-    if (status == RealSenseID::Status::Ok)
+    using DC = RealSenseID::DeviceConfig;
+    switch (rot)
     {
-        std::cout << std::endl << "Authentication settings:" << std::endl;
-        std::cout << " * Rotation: " << device_config.camera_rotation << std::endl;
-        std::cout << " * Security: " << device_config.security_level << std::endl;
-        std::cout << " * Algo flow Mode: " << device_config.algo_flow << std::endl;
-        std::cout << " * Dump Mode: " << device_config.dump_mode << std::endl;
-        std::cout << " * Matcher Confidence Level : " << device_config.matcher_confidence_level << std::endl;
-        std::cout << " * Frontal Face Policy : " << device_config.frontal_face_policy << std::endl;
-        std::cout << " * Max spoof attempts: " << static_cast<int>(device_config.max_spoofs) << std::endl;
-        std::cout << " * GPIO auth toggeling " << static_cast<int>(device_config.gpio_auth_toggling) << std::endl;
-    }
-    else
-    {
-        std::cout << "Status: " << status << std::endl << std::endl;
-    }
-}
-
-void get_number_users(const RealSenseID::SerialConfig& serial_config)
-{
-    auto authenticator = CreateAuthenticator(serial_config);
-
-    unsigned int number_of_users = 0;
-    auto status = authenticator->QueryNumberOfUsers(number_of_users);
-    if (status == RealSenseID::Status::Ok)
-    {
-        std::cout << "Number of users: " << number_of_users << std::endl << std::endl;
-    }
-    else
-    {
-        std::cout << "Status: " << status << std::endl << std::endl;
+    case DC::CameraRotation::Rotation_90_Deg:
+        return 90;
+    case DC::CameraRotation::Rotation_180_Deg:
+        return 180;
+    case DC::CameraRotation::Rotation_270_Deg:
+        return 270;
+    default:
+        return 0;
     }
 }
 
-void get_users(const RealSenseID::SerialConfig& serial_config)
+void print_config(const RealSenseID::DeviceConfig& config, bool numbered)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    using DC = RealSenseID::DeviceConfig;
+    auto motion = config.person_motion_mode == DC::PersonMotionMode::Walkthrough ? "Walkthrough" : "Static";
+    const char* fmt_s = numbered ? "    %-30s%s\n" : "  %-24s%s\n";
+    const char* fmt_d = numbered ? "    %-30s%d\n" : "  %-24s%d\n";
 
+    printf(fmt_s, numbered ? "1.  Security Level" : "Security", Description(config.security_level));
+    printf(fmt_s, numbered ? "2.  Algo Flow" : "Algo Flow", Description(config.algo_flow));
+    printf(fmt_s, numbered ? "3.  Face Selection" : "Face Selection", Description(config.face_selection_policy));
+    printf(fmt_s, numbered ? "4.  Dump Mode" : "Dump Mode", Description(config.dump_mode));
+    printf(fmt_s, numbered ? "5.  Frontal Face Policy" : "Frontal Face Policy", Description(config.frontal_face_policy));
+    printf(fmt_s, numbered ? "6.  Person Motion Mode" : "Person Motion Mode", motion);
+    printf(fmt_d, numbered ? "7.  Rotation" : "Rotation", rotation_to_degrees(config.camera_rotation));
+    printf(fmt_d, numbered ? "8.  Max Spoof Attempts" : "Max Spoof Attempts", static_cast<int>(config.max_spoofs));
+    printf(fmt_d, numbered ? "9.  Matching Threshold" : "Matching Threshold", config.match_thresh);
+    printf(fmt_d, numbered ? "10. GPIO Auth Toggling" : "GPIO Auth Toggling", config.gpio_auth_toggling);
+    printf(fmt_s, numbered ? "11. Distance Limit" : "Distance Limit", Description(config.distance_limit));
+    printf(fmt_d, numbered ? "12. Distance Enabled" : "Distance Enabled", static_cast<int>(config.distance_enabled));
+    printf(fmt_d, numbered ? "13. Exposure Time (us)" : "Exposure Time (us)", config.manual_exposure_time_us);
+    printf(fmt_d, numbered ? "14. Manual Gain" : "Manual Gain", config.manual_gain);
+    printf(fmt_d, numbered ? "15. Rectangle Enabled" : "Rectangle Enabled", static_cast<int>(config.rect_enable));
+    printf(fmt_d, numbered ? "16. Landmarks Enabled" : "Landmarks Enabled", static_cast<int>(config.landmarks_enable));
+    printf(fmt_d, numbered ? "17. Num ROIs" : "Num ROIs", static_cast<int>(config.num_rois));
+    auto roi_fmt = numbered ? "    %-30s[%d,%d] %dx%d\n" : "  %-24s[%d,%d] %dx%d\n";
+    for (unsigned char ri = 0; ri < config.num_rois && ri < RealSenseID::DeviceConfig::MAX_ROIS; ri++)
+    {
+        char roi_label[32];
+        if (numbered)
+            snprintf(roi_label, sizeof(roi_label), "%d. ROI[%d]", 18 + ri, ri);
+        else
+            snprintf(roi_label, sizeof(roi_label), "ROI[%d]", ri);
+        printf(roi_fmt, roi_label, config.detection_rois[ri].x, config.detection_rois[ri].y, config.detection_rois[ri].width,
+               config.detection_rois[ri].height);
+    }
+}
+
+void show_device_config()
+{
+    auto config = query_device_config();
+    if (!config)
+        return;
+    printf("\nDevice Config:\n");
+    printf("----------------------------------------------\n");
+    print_config(*config, false);
+    printf("----------------------------------------------\n\n");
+}
+
+// Read an integer from stdin in [min_val, max_val]. Retries until valid.
+// If default_val is provided, shows it in [brackets] and returns it on empty input.
+int get_int_from_user(const char* prompt, int min_val, int max_val, std::optional<int> default_val = std::nullopt)
+{
+    std::string input;
+    while (true)
+    {
+        if (default_val.has_value())
+            printf("%s[%d] ", prompt, *default_val);
+        else
+            printf("%s", prompt);
+        std::getline(std::cin, input);
+        if (input.empty() && default_val.has_value())
+            return *default_val;
+        std::istringstream iss(input);
+        int value = 0;
+        if (iss >> value && iss.eof() && value >= min_val && value <= max_val)
+            return value;
+        printf("Invalid input. Enter a number between %d and %d.\n", min_val, max_val);
+    }
+}
+
+template <typename T>
+void set_field(T& field, const char* prompt, int min_val, int max_val)
+{
+    field = static_cast<T>(get_int_from_user(prompt, min_val, max_val, static_cast<int>(field)));
+}
+
+std::string to_lower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    return s;
+}
+
+// Read a string from stdin. Accepts a number (1-based index) or the option string (case-insensitive).
+// Retries until valid. If default_val is non-empty, shows it in [brackets] and returns it on empty input.
+std::string get_string_from_user(const char* prompt, const std::vector<std::string>& valid_options, const std::string& default_val = "")
+{
+    std::string input;
+    while (true)
+    {
+        printf("%s(", prompt);
+        for (size_t i = 0; i < valid_options.size(); i++)
+            printf("%s%zu:%s", i ? " / " : "", i + 1, valid_options[i].c_str());
+        if (!default_val.empty())
+            printf(") [%s] ", default_val.c_str());
+        else
+            printf(") ");
+        std::getline(std::cin, input);
+        if (input.empty() && !default_val.empty())
+            return default_val;
+        std::istringstream iss(input);
+        int idx = 0;
+        if (iss >> idx && iss.eof() && idx >= 1 && idx <= static_cast<int>(valid_options.size()))
+            return valid_options[idx - 1];
+        auto lower_input = to_lower(input);
+        if (std::find(valid_options.begin(), valid_options.end(), lower_input) != valid_options.end())
+            return lower_input;
+        printf("Invalid input.\n");
+    }
+}
+
+void get_users()
+{
+    auto authenticator = CreateAuthenticator();
 
     unsigned int number_of_users = 0;
     auto status = authenticator->QueryNumberOfUsers(number_of_users);
     if (status != RealSenseID::Status::Ok)
     {
-        std::cout << "Status: " << status << std::endl << std::endl;
+        std::cout << "Status: " << status << "\n" << std::endl;
         return;
     }
 
     if (number_of_users == 0)
     {
-        std::cout << "No users found" << std::endl << std::endl;
-        return;
-    }
-    // allocate needed array of user ids
-    char** user_ids = new char*[number_of_users];
-    for (unsigned i = 0; i < number_of_users; i++)
-    {
-        user_ids[i] = new char[RealSenseID::MAX_USERID_LENGTH];
-    }
-    unsigned int nusers_in_out = number_of_users;
-    status = authenticator->QueryUserIds(user_ids, nusers_in_out);
-    if (status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Status: " << status << std::endl << std::endl;
-        // free allocated memory and return on error
-        for (unsigned int i = 0; i < number_of_users; i++)
-        {
-            delete user_ids[i];
-        }
-        delete[] user_ids;
+        std::cout << "No users found\n\n";
         return;
     }
 
-    std::cout << std::endl << nusers_in_out << " Users:\n==========\n";
-    for (unsigned int i = 0; i < (std::min)(nusers_in_out, number_of_users); i++)
-    {
-        std::cout << (i + 1) << ".  " << user_ids[i] << std::endl;
-    }
-
-    std::cout << std::endl;
-
-    // free allocated memory
+    // allocate needed array of user ids using vectors for automatic cleanup
+    std::vector<std::vector<char>> user_id_storage(number_of_users, std::vector<char>(RealSenseID::MAX_USERID_LENGTH));
+    std::vector<char*> user_ids(number_of_users);
     for (unsigned int i = 0; i < number_of_users; i++)
     {
-        delete user_ids[i];
+        user_ids[i] = user_id_storage[i].data();
     }
-    delete[] user_ids;
-}
 
-void standby(const RealSenseID::SerialConfig& serial_config)
-{
-    auto authenticator = CreateAuthenticator(serial_config);
-    auto status = authenticator->Standby();
-    std::cout << "Status: " << status << std::endl << std::endl;
-}
-
-void hibernate(const RealSenseID::SerialConfig& serial_config)
-{
-    auto authenticator = CreateAuthenticator(serial_config);
-    auto status = authenticator->Hibernate();
-    std::cout << "Status: " << status << std::endl << std::endl;
-}
-
-void device_info(const RealSenseID::SerialConfig& serial_config)
-{
-    auto device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
-    RealSenseID::DeviceController deviceController(device_type);
-    auto connect_status = deviceController.Connect(serial_config);
-    if (connect_status != RealSenseID::Status::Ok)
+    unsigned int nusers_in_out = number_of_users;
+    status = authenticator->QueryUserIds(user_ids.data(), nusers_in_out);
+    if (status != RealSenseID::Status::Ok)
     {
-        std::cout << "Failed connecting to port " << serial_config.port << " status:" << connect_status << std::endl;
+        std::cout << "Status: " << status << "\n" << std::endl;
         return;
     }
+
+    std::cout << "\n" << nusers_in_out << " Users:\n==========\n";
+    for (unsigned int i = 0; i < (std::min)(nusers_in_out, number_of_users); i++)
+    {
+        std::cout << (i + 1) << ".  " << user_ids[i] << "\n";
+    }
+
+    std::cout << "\n";
+}
+
+void standby()
+{
+    auto authenticator = CreateAuthenticator();
+    auto status = authenticator->Standby();
+    std::cout << "Status: " << status << "\n" << std::endl;
+}
+
+void hibernate()
+{
+    auto authenticator = CreateAuthenticator();
+    auto status = authenticator->Hibernate();
+    std::cout << "Status: " << status << "\n" << std::endl;
+}
+
+void device_info()
+{
+    auto controller = ConnectDeviceController();
+    if (!controller)
+        return;
+
     std::string firmware_version;
-    auto status = deviceController.QueryFirmwareVersion(firmware_version);
+    auto status = controller->QueryFirmwareVersion(firmware_version);
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Failed getting firmware version!\n";
     }
 
     std::string serial_number;
-    status = deviceController.QuerySerialNumber(serial_number);
+    status = controller->QuerySerialNumber(serial_number);
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Failed getting serial number!\n";
     }
 
-    deviceController.Disconnect();
-
-    std::string host_version = RealSenseID::Version();
+    controller->Disconnect();
 
     std::cout << "\n";
     std::cout << "Additional information:\n";
-    std::cout << " * Device: " << device_type << "\n";
+    std::cout << " * Device: " << s_device_info.deviceType << "\n";
     std::cout << " * S/N: " << serial_number << "\n";
     std::cout << " * Firmware: " << firmware_version << "\n";
-    std::cout << " * Host: " << host_version << "\n";
+    std::cout << " * Host: " << RealSenseID::Version() << "\n";
     std::cout << "\n";
 }
 
-void check_for_updates(const RealSenseID::SerialConfig& serial_config)
-{
-    std::cout << "Checking for updates:\n";
-
-    RealSenseID::UpdateCheck::ReleaseInfo remote {};
-    RealSenseID::UpdateCheck::ReleaseInfo local {};
-
-    auto updateChecker = RealSenseID::UpdateCheck::UpdateChecker();
-
-    auto status = updateChecker.GetRemoteReleaseInfo(remote);
-    if (status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed to fetch remote update info.\n";
-        std::cout << "\n";
-        return;
-    }
-
-    status = updateChecker.GetLocalReleaseInfo(serial_config, local);
-    if (status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed to fetch local firmware version info from device.\n";
-        std::cout << "\n";
-        return;
-    }
-
-    if (remote.sw_version > local.sw_version || remote.fw_version > local.fw_version)
-    {
-        std::cout << "Update available!\n";
-        if (remote.sw_version > local.sw_version)
-        {
-            std::cout << " ** Host software update available.\n";
-            std::cout << "      Local Software Version: " << local.sw_version_str << "\n";
-            std::cout << "     Update Software Version: " << remote.sw_version_str << "\n";
-        }
-        if (remote.fw_version > local.fw_version)
-        {
-            std::cout << " ** Firmware update available.\n";
-            std::cout << "      Local Firmware Version: " << local.fw_version_str << "\n";
-            std::cout << "     Update Firmware Version: " << remote.fw_version_str << "\n";
-        }
-
-        std::cout << " * Release notes: " << remote.release_notes_url << "\n";
-        std::cout << " * Update URL: " << remote.release_url << "\n";
-    }
-    else
-    {
-        std::cout << "You are running the latest software and firmware!\n";
-        std::cout << "      Local Software Version: " << local.sw_version_str << "\n";
-        std::cout << "      Local Firmware Version: " << local.fw_version_str << "\n";
-    }
-
-    std::cout << "\n";
-}
 
 // ping X iterations and display roundtrip times
-void ping_device(const RealSenseID::SerialConfig& serial_config, int iters)
+void ping_device(int iters)
 {
     if (iters < 1)
     {
         return;
     }
 
-    const auto device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
-    RealSenseID::DeviceController deviceController(device_type);
-    auto connect_status = deviceController.Connect(serial_config);
-    if (connect_status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed connecting to port " << serial_config.port << " status:" << connect_status << std::endl;
+    auto controller = ConnectDeviceController();
+    if (!controller)
         return;
-    }
 
     using clock = std::chrono::steady_clock;
     for (int i = 0; i < iters; i++)
     {
         auto start_time = clock::now();
-        auto status = deviceController.Ping();
+        auto status = controller->Ping();
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(clock::now() - start_time).count();
         printf("Ping #%04d %s. Roundtrip %03zu millis\n\n", (i + 1), RealSenseID::Description(status), elapsed_ms);
         if (status != RealSenseID::Status::Ok)
         {
-            printf("Ping error\n\n");
+            std::cout << "Ping error\n" << std::endl;
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds {5});
     }
 }
-// Unlock
-void unlock(const RealSenseID::SerialConfig& serial_config)
+
+void unlock()
 {
-    using RealSenseID::FaceAuthenticator;
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     auto status = authenticator->Unlock();
-    std::cout << "Status: " << status << std::endl;
+    std::cout << "Status: " << status << "\n";
     if (status == RealSenseID::Status::Ok)
     {
         std::cout << "Device unlocked\n\n";
     }
 }
 
-// get logs from the device and display last 2 KB
-void query_log(const RealSenseID::SerialConfig& serial_config)
+// Fetch logs from the device and save to a file.
+void query_log()
 {
-    const auto device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
-    RealSenseID::DeviceController deviceController(device_type);
-    auto connect_status = deviceController.Connect(serial_config);
-    if (connect_status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed connecting to port " << serial_config.port << " status:" << connect_status << std::endl;
+    auto controller = ConnectDeviceController();
+    if (!controller)
         return;
-    }
 
     std::string log;
-    std::cout << "Fetching device log..." << std::endl;
-    auto status = deviceController.FetchLog(log);
+    std::cout << "Fetching device log...\n" << std::flush;
+    auto status = controller->FetchLog(log);
 
     if (status != RealSenseID::Status::Ok)
     {
@@ -514,11 +628,11 @@ void query_log(const RealSenseID::SerialConfig& serial_config)
         return;
     }
 
-    deviceController.Disconnect();
+    controller->Disconnect();
 
     // create dumps dir if not exist and save the log in it
     std::string dumps_dir = "dumps";
-    std::string logfile = dumps_dir + "/f460.log";
+    std::string logfile = dumps_dir + "/f500.log";
 #ifdef _WIN32
     int rv = _mkdir(dumps_dir.c_str());
 #else
@@ -534,29 +648,23 @@ void query_log(const RealSenseID::SerialConfig& serial_config)
     ofs << log;
     if (ofs)
     {
-        std::cout << "\n*** Saved to " << logfile << " (" << log.size() << " bytes) ***" << std::endl << std::endl;
+        std::cout << "\n*** Saved to " << logfile << " (" << log.size() << " bytes) ***\n\n";
     }
     else
     {
-        std::string msg = "*** Failed saving to " + logfile;
         std::perror(logfile.c_str());
     }
 }
 
-// get/set color gains
-void color_gains(const RealSenseID::SerialConfig& serial_config)
+void color_gains()
 {
-    const auto device_type = RealSenseID::DiscoverDeviceType(serial_config.port);
-    RealSenseID::DeviceController deviceController(device_type);
-    auto connect_status = deviceController.Connect(serial_config);
-    if (connect_status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed connecting to port " << serial_config.port << " status:" << connect_status << std::endl;
+    auto controller = ConnectDeviceController();
+    if (!controller)
         return;
-    }
+
     int red = -1, blue = -1;
     std::cout << "GetColorGains..\n";
-    auto status = deviceController.GetColorGains(red, blue);
+    auto status = controller->GetColorGains(red, blue);
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Failed getting color gains!\n";
@@ -564,15 +672,13 @@ void color_gains(const RealSenseID::SerialConfig& serial_config)
     }
 
     std::cout << "Current Red-Blue: " << red << " " << blue;
-    // Get blue red and blue from user
-    std::stringstream ss; // Used to convert string to int
 
-    int input_red = 1, input_blue = -1;
+    int input_red = -1, input_blue = -1;
     while (true)
     {
         std::string input;
         input_red = input_blue = -1;
-        std::cout << std::endl << "Set New Red-Blue (e.g. \"64 70\"): ";
+        std::cout << "\nSet New Red-Blue (e.g. \"64 70\"): " << std::flush;
         std::getline(std::cin, input);
         if (input.empty())
             break;
@@ -580,7 +686,7 @@ void color_gains(const RealSenseID::SerialConfig& serial_config)
         if (iss >> input_red && iss >> input_blue && iss.eof())
             break;
     }
-    status = deviceController.SetColorGains(input_red, input_blue);
+    status = controller->SetColorGains(input_red, input_blue);
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Failed setting color gains!\n";
@@ -588,7 +694,7 @@ void color_gains(const RealSenseID::SerialConfig& serial_config)
     }
     std::cout << "SetColorGains Success\n";
     std::cout << "GetColorGains..\n";
-    status = deviceController.GetColorGains(red, blue);
+    status = controller->GetColorGains(red, blue);
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Failed getting color gains!\n";
@@ -598,7 +704,87 @@ void color_gains(const RealSenseID::SerialConfig& serial_config)
     std::cout << "Got values: " << red << " " << blue << "\n";
 }
 
-// extract faceprints for new enrolled user
+void get_temperature()
+{
+    auto controller = ConnectDeviceController();
+    if (!controller)
+        return;
+
+    float soc = 0;
+    float board = 0;
+    auto status = controller->GetTemperature(soc, board);
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "Failed getting temperature!\n";
+        return;
+    }
+    std::cout << "Temperature:\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "* SoC:   " << soc << " Celsius\n";
+    std::cout << "* Board: " << board << " Celsius\n\n";
+}
+
+void reboot_device()
+{
+    auto controller = ConnectDeviceController();
+    if (!controller)
+        return;
+
+    auto status = controller->Reboot();
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "Reboot failed!\n";
+    }
+
+    std::cout << "Rebooting..\n";
+    // connect again to show device info after reboot
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    device_info();
+}
+
+void save_debug()
+{
+    auto authenticator = CreateAuthenticator();
+    std::cout << "Saving debug data to device storage. Please wait..\n";
+    auto status = authenticator->DumpAndMount();
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "SaveDebugData failed\n";
+        return;
+    }
+    std::cout << "Please check the mounted folder (DUMPS)\n";
+    std::exit(0);
+}
+
+void debug_mode()
+{
+    using RealSenseID::DeviceConfig;
+    auto config = query_device_config();
+    if (!config)
+        return;
+
+    auto choice = get_string_from_user("Enable debug dumps? ", {"y", "n"});
+    config->dump_mode = (choice == "y") ? DeviceConfig::DumpMode::Debug : DeviceConfig::DumpMode::None;
+
+    auto authenticator = CreateAuthenticator();
+    auto status = authenticator->SetDeviceConfig(*config);
+    std::cout << "Status: " << status << "\n" << std::endl;
+}
+
+void mount_debug()
+{
+    auto authenticator = CreateAuthenticator();
+    std::cout << "Mounting..\n";
+    auto status = authenticator->MountDebug();
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "MountDebug failed\n";
+        return;
+    }
+    std::cout << "Please check the mounted folder (DUMPS)\n";
+    std::exit(0);
+}
+
 class MyEnrollServerClbk : public RealSenseID::EnrollFaceprintsExtractionCallback
 {
     std::string _user_id;
@@ -610,57 +796,45 @@ public:
 
     void OnResult(const RealSenseID::EnrollStatus status, const RealSenseID::ExtractedFaceprints* faceprints) override
     {
-        std::cout << "on_result: status: " << status << std::endl;
+        std::cout << "on_result: status: " << status << "\n";
 
-        if (status == RealSenseID::EnrollStatus::Success)
-        {
-            // handle with/without mask vectors properly.
+        if (status != RealSenseID::EnrollStatus::Success)
+            return;
 
-            // set the full data for the enrolled object:
-            s_user_faceprint_db[_user_id].data.version = faceprints->data.version;
-            s_user_faceprint_db[_user_id].data.flags = faceprints->data.flags;
-            s_user_faceprint_db[_user_id].data.featuresType = faceprints->data.featuresType;
+        // Copy extracted features into both the enrollment and adaptive descriptors.
+        auto& entry = s_user_faceprint_db[_user_id];
+        entry.data.version = faceprints->data.version;
+        entry.data.flags = faceprints->data.flags;
+        entry.data.featuresType = faceprints->data.featuresType;
 
-            // During enroll we update both vectors (enrollment + adaptive).
+        static_assert(sizeof(entry.data.adaptiveDescriptorWithoutMask) == sizeof(faceprints->data.featuresVector),
+                      "adaptive faceprints vector (without mask) sizes does not match");
+        ::memcpy(entry.data.adaptiveDescriptorWithoutMask, faceprints->data.featuresVector, sizeof(faceprints->data.featuresVector));
 
-            static_assert(sizeof(s_user_faceprint_db[_user_id].data.adaptiveDescriptorWithoutMask) ==
-                              sizeof(faceprints->data.featuresVector),
-                          "adaptive faceprints vector (without mask) sizes does not match");
-            ::memcpy(&s_user_faceprint_db[_user_id].data.adaptiveDescriptorWithoutMask[0], &faceprints->data.featuresVector[0],
-                     sizeof(faceprints->data.featuresVector));
-
-            static_assert(sizeof(s_user_faceprint_db[_user_id].data.enrollmentDescriptor) == sizeof(faceprints->data.featuresVector),
-                          "enrollment faceprints vector sizes does not match");
-            ::memcpy(&s_user_faceprint_db[_user_id].data.enrollmentDescriptor[0], &faceprints->data.featuresVector[0],
-                     sizeof(faceprints->data.featuresVector));
-
-            // mark the withMask vector as invalid because its not set yet!
-            s_user_faceprint_db[_user_id].data.adaptiveDescriptorWithMask[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS] =
-                RealSenseID::FaVectorFlagsEnum::VecFlagNotSet;
-        }
+        static_assert(sizeof(entry.data.enrollmentDescriptor) == sizeof(faceprints->data.featuresVector),
+                      "enrollment faceprints vector sizes does not match");
+        ::memcpy(entry.data.enrollmentDescriptor, faceprints->data.featuresVector, sizeof(faceprints->data.featuresVector));
     }
 
     void OnProgress(const RealSenseID::FacePose pose) override
     {
-        std::cout << "on_progress: pose: " << pose << std::endl;
+        std::cout << "on_progress: pose: " << pose << "\n";
     }
 
-    void OnHint(const RealSenseID::EnrollStatus hint) override
+    void OnHint(const RealSenseID::EnrollStatus hint, float frameScore) override
     {
-        std::cout << "on_hint: hint: " << hint << std::endl;
+        std::cout << "on_hint: hint: " << hint << " frame score: " << frameScore << "\n";
     }
 };
 
-void enroll_faceprints(const RealSenseID::SerialConfig& serial_config, const char* user_id)
+void enroll_faceprints(const char* user_id)
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     MyEnrollServerClbk enroll_clbk {user_id};
-    s_last_enroll_faceprint_status = RealSenseID::EnrollStatus::CameraStarted;
     auto status = authenticator->ExtractFaceprintsForEnroll(enroll_clbk);
-    std::cout << "Status: " << status << std::endl << std::endl;
+    std::cout << "Status: " << status << "\n" << std::endl;
 }
 
-// authenticate with faceprints
 class FaceprintsAuthClbk : public RealSenseID::AuthFaceprintsExtractionCallback
 {
     RealSenseID::FaceAuthenticator* _authenticator;
@@ -672,532 +846,520 @@ public:
 
     void OnResult(const RealSenseID::AuthenticateStatus status, const RealSenseID::ExtractedFaceprints* faceprints) override
     {
-        std::cout << "on_result: status: " << status << std::endl;
+        std::cout << "on_result: status: " << status << "\n";
 
         if (status != RealSenseID::AuthenticateStatus::Success)
         {
-            std::cout << "ExtractFaceprints failed with status " << s_last_auth_faceprint_status << std::endl << std::endl;
+            std::cout << "ExtractFaceprints failed with status " << s_last_auth_faceprint_status << "\n\n";
             return;
         }
 
         RealSenseID::MatchElement scanned_faceprint;
-        // scanned_faceprint.featuresType = faceprints->data.featuresType;
         scanned_faceprint.data.version = faceprints->data.version;
         scanned_faceprint.data.featuresType = faceprints->data.featuresType;
-
-        int32_t vecFlags = faceprints->data.featuresVector[RSID_INDEX_IN_FEATURES_VECTOR_TO_FLAGS];
-        int32_t opFlags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithoutMask;
-
-        if (vecFlags == RealSenseID::FaVectorFlagsEnum::VecFlagValidWithMask)
-        {
-            opFlags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithMask;
-        }
-
-        scanned_faceprint.data.flags = opFlags;
+        scanned_faceprint.data.flags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithoutMask;
 
         static_assert(sizeof(scanned_faceprint.data.featuresVector) == sizeof(faceprints->data.featuresVector),
-                      "new adaptive faceprints vector sizes does not match");
-        ::memcpy(&scanned_faceprint.data.featuresVector[0], &faceprints->data.featuresVector[0], sizeof(faceprints->data.featuresVector));
+                      "faceprints vector sizes do not match");
+        ::memcpy(scanned_faceprint.data.featuresVector, faceprints->data.featuresVector, sizeof(faceprints->data.featuresVector));
 
-        // try to match the new faceprint to one of the faceprints stored in the db
-        std::cout << "\nSearching " << s_user_faceprint_db.size() << " faceprints" << std::endl;
+        std::cout << "\nSearching " << s_user_faceprint_db.size() << " faceprints\n";
 
-        int save_max_score = -1;
-        int winning_index = -1;
-        std::string winning_id_str;
-        RealSenseID::MatchResultHost winning_match_result;
-        RealSenseID::Faceprints winning_updated_faceprints;
+        int best_score = -1;
+        std::string winning_id;
+        RealSenseID::MatchResultHost winning_match;
+        RealSenseID::Faceprints winning_updated;
 
-        // use High by default.
-        // should be taken from DeviceConfig.
-        RealSenseID::ThresholdsConfidenceEnum matcher_confidence_level =
-            RealSenseID::ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High;
+        auto matcher_confidence_level = RealSenseID::ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High;
 
-        int users_index = 0;
-
-        for (auto& iter : s_user_faceprint_db)
+        for (auto& [user_id, db_faceprint] : s_user_faceprint_db)
         {
-            auto user_id = iter.first;
+            RealSenseID::Faceprints existing = db_faceprint;
+            RealSenseID::Faceprints updated = existing;
 
-            RealSenseID::Faceprints existing_faceprint = iter.second;       // the previous vector from the DB.
-            RealSenseID::Faceprints updated_faceprint = existing_faceprint; // init updated to previous state in the DB.
+            auto match = _authenticator->MatchFaceprints(scanned_faceprint, existing, updated, matcher_confidence_level);
 
-            auto match =
-                _authenticator->MatchFaceprints(scanned_faceprint, existing_faceprint, updated_faceprint, matcher_confidence_level);
-
-            int current_score = (int)match.score;
-
-            // save the best winner that matched.
-            if (match.success)
+            if (match.success && static_cast<int>(match.score) > best_score)
             {
-                if (current_score > save_max_score)
-                {
-                    save_max_score = current_score;
-                    winning_match_result = match;
-                    winning_index = users_index;
-                    winning_id_str = user_id;
-                    winning_updated_faceprints = updated_faceprint;
-                }
-            }
-
-            users_index++;
-
-        } // end of for() loop
-
-        if (winning_index >= 0) // we have a winner so declare success!
-        {
-            std::cout << "\n******* Match success. user_id: " << winning_id_str << " *******\n" << std::endl;
-            // apply adaptive-update on the db.
-            if (winning_match_result.should_update)
-            {
-                // apply adaptive update
-                s_user_faceprint_db[winning_id_str] = winning_updated_faceprints;
-                std::cout << "DB adaptive apdate applied to user = " << winning_id_str << "." << std::endl;
+                best_score = static_cast<int>(match.score);
+                winning_match = match;
+                winning_id = user_id;
+                winning_updated = updated;
             }
         }
-        else // no winner, declare authentication failed!
+
+        if (!winning_id.empty())
         {
-            std::cout << "\n******* Forbidden (no faceprint matched) *******\n" << std::endl;
+            std::cout << "\n******* Match success. user_id: " << winning_id << " *******\n\n";
+            if (winning_match.should_update)
+            {
+                s_user_faceprint_db[winning_id] = winning_updated;
+                std::cout << "DB adaptive update applied to user = " << winning_id << ".\n";
+            }
+        }
+        else
+        {
+            std::cout << "\n******* Forbidden (no faceprint matched) *******\n\n";
         }
     }
 
-    void OnHint(const RealSenseID::AuthenticateStatus hint) override
+    void OnHint(const RealSenseID::AuthenticateStatus hint, float frameScore) override
     {
-        std::cout << "on_hint: hint: " << hint << std::endl;
+        std::cout << "on_hint: hint: " << hint << "\n";
     }
 };
 
-void authenticate_faceprints(const RealSenseID::SerialConfig& serial_config)
+void authenticate_faceprints()
 {
-    auto authenticator = CreateAuthenticator(serial_config);
+    auto authenticator = CreateAuthenticator();
     FaceprintsAuthClbk clbk(authenticator.get());
     s_last_auth_faceprint_status = RealSenseID::AuthenticateStatus::CameraStarted;
-    // extract faceprints of the user in front of the device
     auto status = authenticator->ExtractFaceprintsForAuth(clbk);
     if (status != RealSenseID::Status::Ok)
-        std::cout << "Status: " << status << std::endl << std::endl;
-}
-
-void print_usage()
-{
-#ifdef RSID_SECURE
-    std::cout << "Usage: rsid-cli <port> [-unpair]" << std::endl;
-#else
-    std::cout << "Usage: rsid-cli <port>" << std::endl;
-#endif
-}
-
-Args config_from_argv(int argc, char* argv[])
-{
-    if (argc != 2 && argc != 3)
-    {
-        print_usage();
-
-        std::cout << std::endl << "- Discovering devices:" << std::endl;
-        auto devices = RealSenseID::DiscoverDevices();
-        if (!devices.empty())
-        {
-            for (const auto& device : devices)
-            {
-                std::cout << "  [*] Found rsid device " << device.deviceType << ". port: " << device.serialPort << std::endl;
-            }
-            std::cout << "Choose port and retry" << std::endl;
-        }
-        else
-        {
-            std::cout << "No rsid devices were found." << std::endl;
-        }
-        std::exit(1);
-    }
-
-
-    // mandatory serial port in first arg
-    Args args;
-    args.serial_config.port = argv[1];
-
-#ifdef RSID_SECURE
-    // optional unpair command in second arg
-    if (argc > 2)
-    {
-        if (std::string(argv[2]) == "-unpair")
-        {
-            args.unpair = true;
-        }
-        else
-        {
-            print_usage();
-            std::exit(1);
-        }
-    }
-#endif
-    return args;
+        std::cout << "Status: " << status << "\n" << std::endl;
 }
 
 void print_menu_opt(const char* line)
 {
-    printf("  %s\n", line);
+    std::cout << "  " << line << "\n";
 }
 
 void print_menu()
 {
-    std::cout << "Please select an option :\n\n";
-
-    print_menu_opt("'e' to enroll.");
-    print_menu_opt("'a' to authenticate.");
-    print_menu_opt("'t' to authenticate in loop with time delay.");
-    print_menu_opt("'d' to delete all users.");
+    std::cout << "\nChoose an option ('?' for menu, 'q' to quit):\n";
+    print_menu_opt("'e' Enroll");
+    print_menu_opt("'a' Authenticate");
+    print_menu_opt("'t' Authenticate Loop (Press Enter to stop)");
+    print_menu_opt("'d' Delete all users");
 #ifdef RSID_SECURE
-    print_menu_opt("'p' to pair with the device (enables secure communication).");
-    print_menu_opt("'i' to unpair with the device (disables secure communication).");
+    print_menu_opt("'p' Pair device (enable secure comms)");
+    print_menu_opt("'i' Unpair device (disable secure comms)");
 #endif // RSID_SECURE
 #ifdef RSID_PREVIEW
-    print_menu_opt("'c' to capture images from device.");
+    print_menu_opt("'c' Capture frames");
 #endif // RSID_PREVIEW
-    print_menu_opt("'s' to set authentication settings.");
-    print_menu_opt("'g' to query authentication settings.");
-    print_menu_opt("'u' to query ids of users.");
-    print_menu_opt("'n' to query number of users.");
-    print_menu_opt("'b' to send the device to standby.");
-    print_menu_opt("'h' to send the device to hibernate.");
-    print_menu_opt("'v' to view additional information.");
-    print_menu_opt("'r' to check for software update.");
-    print_menu_opt("'x' to ping the device.");
-    print_menu_opt("'L' to unlock.");
-    print_menu_opt("'o' to fetch device log.");
-    print_menu_opt("'w' to set/get color gains.");
-    print_menu_opt("'q' to quit.");
+    print_menu_opt("'s' Set auth settings");
+    print_menu_opt("'g' Show auth settings");
+    print_menu_opt("'u' List users");
+    print_menu_opt("'b' Standby");
+    print_menu_opt("'h' Hibernate");
+    print_menu_opt("'L' Unlock");
+    print_menu_opt("\nDetection (Press Enter to stop):");
+    print_menu_opt("'0' Persons");
+    print_menu_opt("'1' Poses");
+    print_menu_opt("'2' Body parts");
+    print_menu_opt("'3' Barcodes");
 
-    // host mode opts
-    print_menu_opt("\nhost mode options:");
-    print_menu_opt("'E' to enroll with faceprints.");
-    print_menu_opt("'A' to authenticate with faceprints.");
-    print_menu_opt("'U' to list enrolled users");
-    print_menu_opt("'D' to delete all users.");
-    printf("\n");
-    printf("> ");
+    print_menu_opt("\nHost mode:");
+    print_menu_opt("'E' Enroll with faceprints");
+    print_menu_opt("'A' Authenticate with faceprints");
+    print_menu_opt("'U' List enrolled users");
+    print_menu_opt("'D' Delete all users");
+
+    print_menu_opt("\nDebug:");
+    print_menu_opt("'B' Toggle debug dumps");
+    print_menu_opt("'F' Save debug dumps to flash");
+    print_menu_opt("'M' Mount debug dumps");
+    print_menu_opt("'o' Fetch device logs");
+    print_menu_opt("'v' View device info");
+    print_menu_opt("'f' Read temperature");
+    print_menu_opt("'w' Set/get color gains");
+    print_menu_opt("'x' Ping device");
+    print_menu_opt("'R' Reboot device");
 }
 
-void sample_loop(const RealSenseID::SerialConfig& serial_config)
+// Prompt for a non-empty user id string from stdin.
+std::string prompt_user_id()
 {
-    bool is_running = true;
-    std::string input;
-
-    while (is_running)
+    std::string user_id;
+    do
     {
-        print_menu();
+        std::cout << "User id to enroll: ";
+        std::getline(std::cin, user_id);
+    } while (user_id.empty());
+    return user_id;
+}
+
+void print_config_menu(const RealSenseID::DeviceConfig& config)
+{
+    printf("\nConfigure Device:\n");
+    print_config(config, true);
+    printf("\n    (d)efaults / (q)uit\n\n");
+}
+
+void configure_device()
+{
+    using DC = RealSenseID::DeviceConfig;
+
+    auto config = query_device_config();
+    if (!config)
+        return;
+
+    std::string input;
+    while (true)
+    {
+        print_config_menu(*config);
+        std::cout << "Select setting to change: ";
+        std::getline(std::cin, input);
+
+        if (input == "q")
+            return;
+
+        if (input == "d")
+        {
+            *config = DC {};
+            auto authenticator = CreateAuthenticator();
+            auto status = authenticator->SetDeviceConfig(*config);
+            std::cout << "Defaults applied. Status: " << status << "\n";
+            continue;
+        }
+
+        std::istringstream iss(input);
+        int choice = 0;
+        if (!(iss >> choice) || !iss.eof() || choice < 1 || choice > 22)
+        {
+            std::cout << "Invalid input. Enter 1-22, 'd' for defaults, or 'q' to quit.\n";
+            continue;
+        }
+
+        switch (choice)
+        {
+        case 1: {
+            auto val = get_string_from_user("Security level: ", {"high", "medium", "low"},
+                                            to_lower(RealSenseID::Description(config->security_level)));
+            if (val == "medium")
+                config->security_level = DC::SecurityLevel::Medium;
+            else if (val == "low")
+                config->security_level = DC::SecurityLevel::Low;
+            else
+                config->security_level = DC::SecurityLevel::High;
+            break;
+        }
+        case 2: {
+            auto val = get_string_from_user("Algo flow: ", {"all", "recognitiononly", "facedetectiononly", "spoofonly"},
+                                            to_lower(RealSenseID::Description(config->algo_flow)));
+            if (val == "recognitiononly")
+                config->algo_flow = DC::AlgoFlow::RecognitionOnly;
+            else if (val == "facedetectiononly")
+                config->algo_flow = DC::AlgoFlow::FaceDetectionOnly;
+            else if (val == "spoofonly")
+                config->algo_flow = DC::AlgoFlow::SpoofOnly;
+            else
+                config->algo_flow = DC::AlgoFlow::All;
+            break;
+        }
+        case 3: {
+            auto val = get_string_from_user("Face selection: ", {"single", "all"},
+                                            to_lower(RealSenseID::Description(config->face_selection_policy)));
+            config->face_selection_policy = (val == "all") ? DC::FaceSelectionPolicy::All : DC::FaceSelectionPolicy::Single;
+            break;
+        }
+        case 4: {
+            auto val = get_string_from_user("Dump mode: ", {"none", "croppedface", "fullframe", "debug"},
+                                            to_lower(RealSenseID::Description(config->dump_mode)));
+            if (val == "croppedface")
+                config->dump_mode = DC::DumpMode::CroppedFace;
+            else if (val == "fullframe")
+                config->dump_mode = DC::DumpMode::FullFrame;
+            else if (val == "debug")
+                config->dump_mode = DC::DumpMode::Debug;
+            else
+                config->dump_mode = DC::DumpMode::None;
+            break;
+        }
+        case 5: {
+            auto val = get_string_from_user("Frontal face policy: ", {"strict", "moderate", "none"},
+                                            to_lower(RealSenseID::Description(config->frontal_face_policy)));
+            if (val == "strict")
+                config->frontal_face_policy = DC::FrontalFacePolicy::Strict;
+            else if (val == "moderate")
+                config->frontal_face_policy = DC::FrontalFacePolicy::Moderate;
+            else
+                config->frontal_face_policy = DC::FrontalFacePolicy::None;
+            break;
+        }
+        case 6: {
+            auto cur = (config->person_motion_mode == DC::PersonMotionMode::Walkthrough) ? "walkthrough" : "static";
+            auto val = get_string_from_user("Person motion mode: ", {"static", "walkthrough"}, cur);
+            config->person_motion_mode = (val == "walkthrough") ? DC::PersonMotionMode::Walkthrough : DC::PersonMotionMode::Static;
+            break;
+        }
+        case 7: {
+            auto val =
+                get_string_from_user("Rotation: ", {"0", "90", "180", "270"}, std::to_string(rotation_to_degrees(config->camera_rotation)));
+            if (val == "90")
+                config->camera_rotation = DC::CameraRotation::Rotation_90_Deg;
+            else if (val == "180")
+                config->camera_rotation = DC::CameraRotation::Rotation_180_Deg;
+            else if (val == "270")
+                config->camera_rotation = DC::CameraRotation::Rotation_270_Deg;
+            else
+                config->camera_rotation = DC::CameraRotation::Rotation_0_Deg;
+            break;
+        }
+        case 8:
+            set_field(config->max_spoofs, "Max spoof attempts (0-255): ", 0, 255);
+            break;
+        case 9:
+            set_field(config->match_thresh, "Matching threshold (0-65535): ", 0, 65535);
+            break;
+        case 10:
+            set_field(config->gpio_auth_toggling, "GPIO auth toggling (0/1): ", 0, 1);
+            break;
+        case 11:
+            set_field(config->distance_limit, "Distance limit (0:NoLimit, 1:Short, 2:Mid, 3:Long): ", 0, 3);
+            break;
+        case 12:
+            set_field(config->distance_enabled, "Distance enabled (0/1): ", 0, 1);
+            break;
+        case 13:
+            set_field(config->manual_exposure_time_us, "Exposure time in us (0=auto): ", 0, 65535);
+            break;
+        case 14:
+            set_field(config->manual_gain, "Manual gain (0=auto): ", 0, 65535);
+            break;
+        case 15:
+            set_field(config->rect_enable, "Rectangle enabled (0/1): ", 0, 1);
+            break;
+        case 16:
+            set_field(config->landmarks_enable, "Landmarks enabled (0/1): ", 0, 1);
+            break;
+        case 17:
+            set_field(config->num_rois, "Number of ROIs (1-5): ", 1, 5);
+            break;
+        case 18:
+        case 19:
+        case 20:
+        case 21:
+        case 22: {
+            int roi_idx = choice - 18;
+            if (roi_idx >= static_cast<int>(config->num_rois))
+            {
+                std::cout << "ROI[" << roi_idx << "] is not active (num_rois=" << static_cast<int>(config->num_rois)
+                          << "). Increase Num ROIs first.\n";
+                continue;
+            }
+            bool portrait = config->camera_rotation == DC::CameraRotation::Rotation_0_Deg ||
+                            config->camera_rotation == DC::CameraRotation::Rotation_180_Deg;
+            int max_w = portrait ? 1080 : 1920;
+            int max_h = portrait ? 1920 : 1080;
+            auto& roi = config->detection_rois[roi_idx];
+            char prompt[64];
+            snprintf(prompt, sizeof(prompt), "ROI[%d] x (0-%d): ", roi_idx, max_w);
+            roi.x = static_cast<unsigned short>(get_int_from_user(prompt, 0, max_w, roi.x));
+            snprintf(prompt, sizeof(prompt), "ROI[%d] y (0-%d): ", roi_idx, max_h);
+            roi.y = static_cast<unsigned short>(get_int_from_user(prompt, 0, max_h, roi.y));
+            snprintf(prompt, sizeof(prompt), "ROI[%d] width (1-%d): ", roi_idx, max_w);
+            roi.width = static_cast<unsigned short>(get_int_from_user(prompt, 1, max_w, roi.width));
+            snprintf(prompt, sizeof(prompt), "ROI[%d] height (1-%d): ", roi_idx, max_h);
+            roi.height = static_cast<unsigned short>(get_int_from_user(prompt, 1, max_h, roi.height));
+            break;
+        }
+        }
+
+        // Auto-apply after each change
+        {
+            auto authenticator = CreateAuthenticator();
+            auto status = authenticator->SetDeviceConfig(*config);
+            std::cout << "Status: " << status << "\n";
+        } // destroy authenticator (release serial port) before potential re-sync
+
+        // Re-read config from device to stay in sync (catches rejected values)
+        auto refreshed = query_device_config();
+        if (refreshed)
+            *config = *refreshed;
+    }
+}
+
+void sample_loop()
+{
+    std::string input;
+    print_menu();
+
+    for (bool first = true; /**/; first = false)
+    {
+        if (!first)
+        {
+            std::cout << "\n[?] for menu, [q] to quit\n";
+        }
+        std::cout << "> " << std::flush;
 
         if (!std::getline(std::cin, input))
             continue;
 
-        if (input.empty() || input.length() > 1)
+        if (input.size() != 1)
             continue;
 
-        switch (char key = input[0])
+        if (input[0] == '?')
         {
-        case 'e': {
-            std::string user_id;
-            do
-            {
-                std::cout << "User id to enroll: ";
-                std::getline(std::cin, user_id);
-            } while (user_id.empty());
-            do_enroll(serial_config, user_id.c_str());
-            break;
+            print_menu();
+            continue;
         }
+
+        switch (input[0])
+        {
+        case 'e':
+            do_enroll(prompt_user_id().c_str());
+            break;
         case 'a':
-            do_authenticate(serial_config);
+            do_authenticate();
             break;
-        case 't': {
-            std::stringstream ss; // Used to convert string to int
-            int iter = 5;
-            while (true)
-            {
-                input.clear();
-                std::cout << std::endl << "Authentication iterations (default: 5): ";
-                std::getline(std::cin, input);
-                if (input.empty())
-                    break;
-                std::istringstream iss(input);
-                if (iss >> iter && iss.eof() && iter > 0)
-                    break;
-            }
-
-            int delay_ms = 50;
-
-            while (true)
-            {
-                input.clear();
-                std::cout << std::endl << "Delay between iterations in ms (default: 50): ";
-                std::getline(std::cin, input);
-                if (input.empty())
-                    break;
-                std::istringstream iss(input);
-                if (iss >> delay_ms && iss.eof() && delay_ms >= 0)
-                    break;
-            }
-
-            std::cout << "Running " << iter << " authentication iterations with " << delay_ms << "ms delay between each iteration."
-                      << std::endl;
-
-            do_authenticate_loop(serial_config, iter, delay_ms);
+        case 't':
+            do_authenticate_loop();
             break;
-        }
         case 'd':
-            remove_users(serial_config);
+            remove_users();
             break;
 #ifdef RSID_SECURE
         case 'p':
-            pair_device(serial_config);
+            pair_device();
             break;
         case 'i':
-            unpair_device(serial_config);
+            unpair_device();
             break;
 #endif // RSID_SECURE
 #ifdef RSID_PREVIEW
         case 'c': {
-            RealSenseID::PreviewConfig config;
-            config.deviceType = RealSenseID::DiscoverDeviceType(serial_config.port);
-            s_preview = std::make_unique<RealSenseID::Preview>(config);
+            RealSenseID::PreviewConfig pconfig;
+            pconfig.deviceType = s_device_info.deviceType;
+            pconfig.cameraNumber = s_device_info.cameraNumber;
+            pconfig.skip_decode = true; // so we get jpeg frames
+            s_preview = std::make_unique<RealSenseID::Preview>(pconfig);
             s_preview_callback = std::make_unique<PreviewRender>();
             s_preview->StartPreview(*s_preview_callback);
             std::cout << "starting preview for 3 seconds ";
             std::this_thread::sleep_for(std::chrono::seconds {3});
             s_preview->StopPreview();
             std::this_thread::sleep_for(std::chrono::milliseconds {400});
-            std::cout << std::endl;
+            std::cout << "\n";
             break;
         }
 #endif // RSID_PREVIEW
-        case 's': {
-            RealSenseID::DeviceConfig config;
-            config.camera_rotation = RealSenseID::DeviceConfig::CameraRotation::Rotation_0_Deg;
-            config.security_level = RealSenseID::DeviceConfig::SecurityLevel::High;
-            std::string sec_level;
-            std::cout << "Set security level(medium/high/low): ";
-            std::getline(std::cin, sec_level);
-            if (sec_level.find("med") != std::string::npos)
-            {
-                config.security_level = RealSenseID::DeviceConfig::SecurityLevel::Medium;
-            }
-            else if (sec_level.find("low") != std::string::npos)
-            {
-                config.security_level = RealSenseID::DeviceConfig::SecurityLevel::Low;
-            }
-            else
-            {
-                config.security_level = RealSenseID::DeviceConfig::SecurityLevel::High;
-            }
-            std::cout << "Set algo flow (all/detection/recognition/spoof only): ";
-            std::getline(std::cin, sec_level);
-            if (sec_level.find("rec") != std::string::npos)
-            {
-                config.algo_flow = RealSenseID::DeviceConfig::AlgoFlow::RecognitionOnly;
-            }
-            else if (sec_level.find("spoof") != std::string::npos)
-            {
-                config.algo_flow = RealSenseID::DeviceConfig::AlgoFlow::SpoofOnly;
-            }
-            else if (sec_level.find("detection") != std::string::npos)
-            {
-                config.algo_flow = RealSenseID::DeviceConfig::AlgoFlow::FaceDetectionOnly;
-            }
-            else
-            {
-                config.algo_flow = RealSenseID::DeviceConfig::AlgoFlow::All;
-            }
-
-            // matcher confidence level
-            config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::High;
-            std::string matcher_confidence_level;
-            std::cout << "Set matcher confidence level (high/medium/low): ";
-            std::getline(std::cin, matcher_confidence_level);
-
-            if (matcher_confidence_level.find("hi") != std::string::npos)
-            {
-                config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::High;
-            }
-            else if (matcher_confidence_level.find("med") != std::string::npos)
-            {
-                config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::Medium;
-            }
-            else if (matcher_confidence_level.find("lo") != std::string::npos)
-            {
-                config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::Low;
-            }
-            else
-            {
-                std::cout << "invalid confidence level string : setting High by default!\n";
-                config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::High;
-            }
-
-            // frontal face policy
-            config.matcher_confidence_level = RealSenseID::DeviceConfig::MatcherConfidenceLevel::High;
-            std::string frontal_policy;
-            std::cout << "Set frontal face policy 's'(strict) /'m'(moderate)/'n'(none): ";
-            std::getline(std::cin, frontal_policy);
-
-            switch (frontal_policy[0])
-            {
-            case 's':
-                config.frontal_face_policy = RealSenseID::DeviceConfig::FrontalFacePolicy::Strict;
-                break;
-            case 'm':
-                config.frontal_face_policy = RealSenseID::DeviceConfig::FrontalFacePolicy::Moderate;
-                break;
-            case 'n':
-                config.frontal_face_policy = RealSenseID::DeviceConfig::FrontalFacePolicy::None;
-                break;
-            default:
-                std::cout << "invalid frontal policy.  Setting to None !\n";
-                config.frontal_face_policy = RealSenseID::DeviceConfig::FrontalFacePolicy::None;
-                break;
-            }
-            std::string rot_level;
-            std::cout << "Set rotation level(0/180): ";
-            std::getline(std::cin, rot_level);
-            if (rot_level.find("180") != std::string::npos)
-            {
-                config.camera_rotation = RealSenseID::DeviceConfig::CameraRotation::Rotation_180_Deg;
-            }
-
-            // input max spoof attempts
-            while (true)
-            {
-                input.clear();
-                std::cout << "Max spoof attempts(0-255): ";
-                unsigned short max_spoofs = 0;
-                std::getline(std::cin, input);
-                std::istringstream iss(input);
-                if (iss >> max_spoofs && iss.eof() && max_spoofs <= 255)
-                {
-                    config.max_spoofs = static_cast<unsigned char>(max_spoofs);
-                    break;
-                }
-                else
-                {
-                    std::cerr << "Invalid input" << std::endl;
-                }
-            }
-
-            std::cout << "Set gpio_auth_toggling (1/0): ";
-            std::string toggling;
-            std::getline(std::cin, toggling);
-            config.gpio_auth_toggling = toggling == "1" ? 1 : 0;
-            set_device_config(serial_config, config);
+        case 's':
+            configure_device();
             break;
-        }
         case 'g':
-            get_device_config(serial_config);
+            show_device_config();
             break;
         case 'u':
-            get_users(serial_config);
-            break;
-        case 'n':
-            get_number_users(serial_config);
+            get_users();
             break;
         case 'b':
-            standby(serial_config);
+            standby();
             break;
         case 'h':
-            hibernate(serial_config);
+            hibernate();
             break;
         case 'v':
-            device_info(serial_config);
-            break;
-        case 'r':
-            check_for_updates(serial_config);
+            device_info();
             break;
         case 'x': {
-            int iters = -1;
-            std::string line;
-            do
-            {
-                try
-                {
-                    std::cout << "Iterations:\n>>";
-                    std::getline(std::cin, line);
-                    iters = std::stoi(line);
-                }
-                catch (std::invalid_argument&)
-                {
-                }
-            } while (iters < 0);
-            ping_device(serial_config, iters);
+            int iters = get_int_from_user("Iterations: ", 1, 999999);
+            ping_device(iters);
             break;
         }
         case 'q':
-            is_running = false;
+            return;
+        case 'E':
+            enroll_faceprints(prompt_user_id().c_str());
             break;
-        case 'E': {
-            std::string user_id;
-            do
-            {
-                std::cout << "User id to enroll: ";
-                std::getline(std::cin, user_id);
-            } while (user_id.empty());
-            enroll_faceprints(serial_config, user_id.c_str());
-            break;
-        }
         case 'A':
-            authenticate_faceprints(serial_config);
+            authenticate_faceprints();
             break;
         case 'U': {
-            std::cout << std::endl << s_user_faceprint_db.size() << " users\n";
-            for (const auto& iter : s_user_faceprint_db)
+            std::cout << "\n" << s_user_faceprint_db.size() << " users\n";
+            for (const auto& [user_id, faceprint] : s_user_faceprint_db)
             {
-                std::cout << " * " << iter.first << std::endl;
+                std::cout << " * " << user_id << "\n";
             }
-            std::cout << std::endl;
+            std::cout << "\n";
             break;
         }
         case 'D':
             s_user_faceprint_db.clear();
-            std::cout << "\nFaceprints deleted..\n" << std::endl;
+            std::cout << "\nFaceprints deleted..\n\n";
             break;
         case 'L':
-            unlock(serial_config);
+            unlock();
             break;
         case 'o':
-            query_log(serial_config);
+            query_log();
             break;
         case 'w':
-            color_gains(serial_config);
+            color_gains();
             break;
-        default:;
+        case 'f':
+            get_temperature();
+            break;
+        case 'R':
+            reboot_device();
+            break;
+        case '0':
+            do_detect_persons();
+            break;
+        case '1':
+            do_detect_poses();
+            break;
+        case '2':
+            do_detect_body_parts();
+            break;
+        case '3':
+            do_decode_barcodes();
+            break;
+        case 'B':
+            debug_mode();
+            break;
+        case 'F':
+            save_debug();
+            break;
+        case 'M':
+            mount_debug();
+            break;
         }
     }
 }
 
-int main(int argc, char* argv[])
+int main()
 {
     try
     {
-        auto args = config_from_argv(argc, argv);
-#ifdef RSID_SECURE
-        if (args.unpair)
-        {
-            std::cout << "**** Pairing device ****\n";
-            pair_device(args.serial_config);
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            std::cout << "\n***** Un-Pairing device****\n";
-            unpair_device(args.serial_config);
-            return 0;
-        }
-#endif // RSID_SECURE
+        std::cout << "Discovering devices...\n" << std::flush;
+        auto devices = RealSenseID::DiscoverDevices();
 
-        const auto device_type = RealSenseID::DiscoverDeviceType(args.serial_config.port);
-        if (device_type == RealSenseID::DeviceType::Unknown)
+        if (devices.empty())
         {
-            std::cout << "Unknown device on port " << args.serial_config.port << std::endl;
-            exit(1);
+            std::cout << "Error: No rsid devices were found.\n";
+            std::exit(1);
         }
-        std::cout << "Detected device " << device_type << " on port " << args.serial_config.port << std::endl;
-        sample_loop(args.serial_config);
+
+        // Auto-select if 1 device, otherwise ask user
+        if (devices.size() == 1)
+        {
+            s_device_info = devices[0];
+            std::cout << "Found 1 device. Auto-selecting:\n";
+            std::cout << " - Port: " << s_device_info.serialPort << " (S/N: " << s_device_info.serialNumber << ")\n";
+        }
+        else
+        {
+            std::cout << "Found " << devices.size() << " devices:\n";
+            for (size_t i = 0; i < devices.size(); ++i)
+            {
+                std::cout << i << ". Port: " << devices[i].serialPort << " \t(S/N: " << devices[i].serialNumber << ")\n";
+            }
+
+            auto prompt = "\nSelect device index (0-" + std::to_string(devices.size() - 1) + "): ";
+            int selection = get_int_from_user(prompt.c_str(), 0, static_cast<int>(devices.size()) - 1);
+            s_device_info = devices[selection];
+            std::cout << "Selected: " << s_device_info.serialPort << "\n";
+        }
+
+        // Start main loop
+        sample_loop();
         return 0;
     }
     catch (const std::exception& ex)
     {
-        std::cerr << "Exception occurred: " << ex.what() << std::endl;
+        std::cerr << "Exception occurred: " << ex.what() << "\n";
         return 1;
     }
 }

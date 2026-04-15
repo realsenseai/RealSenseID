@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.14)
 project(libuvc
   VERSION 0.0.7
   LANGUAGES C
@@ -39,7 +39,11 @@ set(SOURCES
   src/misc.c
 )
 
-find_package(LibUSB)
+if (ANDROID)
+  include(${CMAKE_CURRENT_LIST_DIR}/cmake/AndroidLibUSB.cmake)
+else()
+  find_package(LibUSB)
+endif ()
 
 # JpegPkg name to differ from shipped with CMake
 
@@ -177,60 +181,60 @@ if(BUILD_TEST)
   )
 endif()
 
-
-include(GNUInstallDirs)
-set(CMAKE_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/libuvc)
-
-install(
-  TARGETS ${UVC_TARGETS}
-  EXPORT libuvcTargets
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libuvc
-)
-
-install(EXPORT libuvcTargets
-  FILE libuvcTargets.cmake
-  NAMESPACE LibUVC::
-  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
-)
-
-install(FILES 
-    cmake/FindLibUSB.cmake
-    cmake/FindJpegPkg.cmake
-  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
-)
-
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(libuvcConfigVersion.cmake
-  COMPATIBILITY AnyNewerVersion
-)
-
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/libuvcConfigVersion.cmake
-  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
-)
-
-if(JPEG_FOUND)
-  # If we have used JPEG library we need to 
-  # add linker flag for it in config file for pkgconfig
-  set(PKGCONFIG_JPEG_LDFLAG "-ljpeg")
-endif()
-
-configure_file(libuvc.pc.in
-  ${PROJECT_BINARY_DIR}/libuvc.pc
-  @ONLY
-)
-
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/libuvc.pc
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
-)
-
-install(FILES libuvcConfig.cmake
-  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
-)
-
+# RSID - disable all install targets
+#include(GNUInstallDirs)
+#set(CMAKE_INSTALL_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/libuvc)
+#
+#install(
+#  TARGETS ${UVC_TARGETS}
+#  EXPORT libuvcTargets
+#  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+#  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+#  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libuvc
+#)
+#
+#install(EXPORT libuvcTargets
+#  FILE libuvcTargets.cmake
+#  NAMESPACE LibUVC::
+#  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
+#)
+#
+#install(FILES
+#    cmake/FindLibUSB.cmake
+#    cmake/FindJpegPkg.cmake
+#  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
+#)
+#
+#include(CMakePackageConfigHelpers)
+#write_basic_package_version_file(libuvcConfigVersion.cmake
+#  COMPATIBILITY AnyNewerVersion
+#)
+#
+#install(FILES
+#  ${CMAKE_CURRENT_BINARY_DIR}/libuvcConfigVersion.cmake
+#  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
+#)
+#
+#if(JPEG_FOUND)
+#  # If we have used JPEG library we need to
+#  # add linker flag for it in config file for pkgconfig
+#  set(PKGCONFIG_JPEG_LDFLAG "-ljpeg")
+#endif()
+#
+#configure_file(libuvc.pc.in
+#  ${PROJECT_BINARY_DIR}/libuvc.pc
+#  @ONLY
+#)
+#
+#install(FILES
+#  ${CMAKE_CURRENT_BINARY_DIR}/libuvc.pc
+#  DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+#)
+#
+#install(FILES libuvcConfig.cmake
+#  DESTINATION ${CMAKE_INSTALL_CMAKEDIR}
+#)
+#
 

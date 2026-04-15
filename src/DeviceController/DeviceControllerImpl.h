@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -24,7 +24,7 @@ public:
     Status Connect(const SerialConfig& config);
     void Disconnect();
 
-    bool Reboot();
+    Status Reboot();
     Status QueryFirmwareVersion(std::string& version);
     Status QuerySerialNumber(std::string& serial);
     Status QueryOtpVersion(uint8_t& otpVer);
@@ -33,6 +33,7 @@ public:
     Status GetTemperature(float& soc, float& board);
     Status GetColorGains(int& red, int& blue);
     Status SetColorGains(int red, int blue);
+    Status QueryBspVer(std::string& bspver);
 
 private:
     std::unique_ptr<PacketManager::SerialConnection> _serial;

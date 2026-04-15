@@ -619,7 +619,7 @@ static int _uvc_stream_params_negotiated(
   uvc_stream_ctrl_t *actual) {
     return required->bFormatIndex == actual->bFormatIndex &&
     required->bFrameIndex == actual->bFrameIndex &&
-    required->dwMaxPayloadTransferSize == actual->dwMaxPayloadTransferSize;
+    required->dwMaxPayloadTransferSize >= actual->dwMaxPayloadTransferSize;
 }
 
 /** @internal
@@ -1163,7 +1163,9 @@ uvc_error_t uvc_stream_start(
     size_t endpoint_bytes_per_packet = 0;
     /* Index of the altsetting */
     int alt_idx, ep_idx;
-    
+    /* Attempts to change settings */
+    int attempts;
+
     config_bytes_per_packet = strmh->cur_ctrl.dwMaxPayloadTransferSize;
 
     /* Go through the altsettings and find one whose packets are at least
@@ -1219,9 +1221,13 @@ uvc_error_t uvc_stream_start(
     }
 
     /* Select the altsetting */
-    ret = libusb_set_interface_alt_setting(strmh->devh->usb_devh,
+    attempts = 0;
+    do {
+        attempts ++;
+        ret = libusb_set_interface_alt_setting(strmh->devh->usb_devh,
                                            altsetting->bInterfaceNumber,
                                            altsetting->bAlternateSetting);
+    } while(ret != UVC_SUCCESS && attempts < 3);
     if (ret != UVC_SUCCESS) {
       UVC_DEBUG("libusb_set_interface_alt_setting failed");
       goto fail;

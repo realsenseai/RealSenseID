@@ -1,5 +1,5 @@
 // License: Apache 2.0. See LICENSE file in root directory.
-// Copyright(c) 2020-2021 Intel Corporation. All Rights Reserved.
+// Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -31,6 +31,7 @@ struct RSID_API PreviewConfig
     bool portraitMode = true; // change Preview to get portrait or landscape images. Algo process is defined separately
                               // in DeviceConfig::CameraRotation
     bool rotateRaw = false;   // enables rotation of raw data in portraitMode == true
+    bool skip_decode = false; // set to true to skip decoding MJPEG frames to rgb (to get MJPEG frames directly)
 };
 
 /**
