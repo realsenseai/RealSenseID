@@ -58,6 +58,7 @@ See [SKILL.md](./SKILL.md) for guidance when using this SDK with AI tools.
 
 - Linux (Ubuntu 18.04+, Raspberry Pi 4+, Jetson)
 - Windows (Windows 10+)
+- macOS 12+ (Apple Silicon; face-auth path only — preview/libuvc unsupported)
 - Android 8-16
 
 ## Bindings
@@ -146,6 +147,16 @@ In order to be able to capture metadata for RAW format, open a `PowerShell` term
 
 # F500 / F505
 .\scripts\realsenseid_metadata_win10-f500.ps1
+```
+
+### macOS Notes
+
+The face-auth path (FaceAuthenticator, DeviceController, FwUpdater) builds and runs on macOS using the existing POSIX `LinuxSerial` implementation. Build with `-DRSID_PREVIEW=OFF`; the preview pipeline (libuvc) is not yet supported on macOS.
+
+`discover_devices()` walks `/sys/bus/usb/` (Linux-only) and returns an empty list on macOS. Pass the F455's serial port directly to `FaceAuthenticator(<port>)`. Locate it with:
+
+```bash
+ls /dev/cu.usbmodem*
 ```
 
 ## Sample Code
