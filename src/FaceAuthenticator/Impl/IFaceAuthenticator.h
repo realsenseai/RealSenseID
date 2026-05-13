@@ -48,25 +48,19 @@ public:
     virtual Status Hibernate() = 0;
     virtual Status Unlock() = 0;
 
-#ifdef RSID_ONE2ONE
     virtual EnrollStatus EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height) = 0;
     virtual Status AuthenticateOneToOne(AuthenticationCallback& callback) = 0;
     virtual AuthenticateStatus AuthenticateImageOneToOne(const unsigned char* buffer, unsigned int width, unsigned int height,
                                                          std::string& user_id, short& score) = 0;
-    virtual Status ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                           ExtractedFaceprints* pExtractedFaceprints) = 0;
-
-    virtual Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result) = 0;
-
-#endif // RSID_ONE2ONE
+    virtual Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result, bool expand_roi) = 0;
 
     virtual Status SendImageToDevice(const unsigned char* buffer, unsigned int width, unsigned int height) = 0;
     virtual Status ExtractFaceprintsForEnroll(EnrollFaceprintsExtractionCallback& callback) = 0;
     virtual Status ExtractFaceprintsForAuth(AuthFaceprintsExtractionCallback& callback) = 0;
     virtual Status ExtractFaceprintsForAuthLoop(AuthFaceprintsExtractionCallback& callback) = 0;
 
-    virtual MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints, Faceprints& updated_faceprints,
-                                            ThresholdsConfidenceEnum matcher_confidence_level) = 0;
+    virtual MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints,
+                                            Faceprints& updated_faceprints) = 0;
 
     virtual Status GetUsersFaceprints(Faceprints* user_features, unsigned int& num_of_users) = 0;
     virtual Status SetUsersFaceprints(UserFaceprints* users_faceprints, unsigned int num_of_users) = 0;

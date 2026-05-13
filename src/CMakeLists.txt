@@ -4,18 +4,19 @@ add_library(${LIBRSID_CPP_TARGET} SHARED "")
 
 find_package(Threads REQUIRED)
 
-target_link_libraries(${LIBRSID_CPP_TARGET} 
+target_link_libraries(${LIBRSID_CPP_TARGET}
     PRIVATE
         spdlog::spdlog_header_only
         Threads::Threads
-        $<$<BOOL:${RSID_SECURE}>:mbedtls>        
+        stb
+        $<$<BOOL:${RSID_SECURE}>:mbedtls>
 )
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(HEADERS "${SRC_DIR}/StatusHelper.h")
-set(SOURCES        
+set(SOURCES
     "${SRC_DIR}/StatusHelper.cc"
-    "${SRC_DIR}/Version.cc"    
+    "${SRC_DIR}/Version.cc"
 )
 
 add_subdirectory("${SRC_DIR}/FaceAuthenticator")
@@ -30,10 +31,11 @@ if(RSID_PREVIEW)
     add_subdirectory("${SRC_DIR}/Preview")
 endif()
 
-if(RSID_ONE2ONE)	
-    include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/pipeline.cmake")	
-	setup_rsid_pipeline(${LIBRSID_CPP_TARGET})
-	target_compile_definitions(${LIBRSID_CPP_TARGET} PRIVATE RSID_ONE2ONE)
+if(RSID_PIPELINE)
+    add_subdirectory("${SRC_DIR}/Pipeline")
+else()
+    # Pipeline.h required to keep types available for signatures
+    target_include_directories(${LIBRSID_CPP_TARGET} PRIVATE "${SRC_DIR}/Pipeline")
 endif()
 
 target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${HEADERS} ${SOURCES})
@@ -52,10 +54,17 @@ target_compile_definitions(${LIBRSID_CPP_TARGET}
         $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
         $<$<BOOL:${RSID_DEBUG_VALUES}>:RSID_DEBUG_VALUES>
         $<$<BOOL:${RSID_DEBUG_PACKETS}>:RSID_DEBUG_PACKETS>
+        $<$<BOOL:${RSID_PIPELINE}>:RSID_PIPELINE>
     PUBLIC
         $<$<BOOL:${RSID_SECURE}>:RSID_SECURE>
 )
 
+if(RSID_PIPELINE)
+    copy_onnxruntime_to_target(${LIBRSID_CPP_TARGET})
+    copy_models_to_target(${LIBRSID_CPP_TARGET})
+endif()
+
+# set debug postfix
 set_target_properties(${LIBRSID_CPP_TARGET} PROPERTIES DEBUG_POSTFIX ${RSID_DEBUG_POSTFIX})
 set_common_compile_opts(${LIBRSID_CPP_TARGET})
 

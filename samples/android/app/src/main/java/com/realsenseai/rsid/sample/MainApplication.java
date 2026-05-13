@@ -4,15 +4,15 @@
 package com.realsenseai.rsid.sample;
 
 import android.app.Application;
-import android.content.pm.ApplicationInfo;
 import android.os.StrictMode;
+import com.realsenseai.rsid.api.RealSenseID;
+import com.realsenseai.rsid.sample.util.SDKWrapper;
 import timber.log.Timber;
 
 
 public class MainApplication extends Application {
 
   private static volatile MainApplication sInstance;
-  private boolean isDebuggable;
 
   public static MainApplication getInstance() {
     return sInstance;
@@ -22,24 +22,25 @@ public class MainApplication extends Application {
   public void onCreate() {
     super.onCreate();
     sInstance = this;
-    isDebuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-
     initializeComponents();
   }
 
   private void initializeComponents() {
     initializeLogging();
 
-    //if (isDebuggable) {
-    //  enableStrictMode();
-    //}
+    System.loadLibrary("RealSenseIDSwigJNI");
+    RealSenseID.SetAssetManager(getAssets());
+    SDKWrapper.INSTANCE.init(this);
   }
 
   private void initializeLogging() {
 
+    /*
     if (BuildConfig.DEBUG) {
       Timber.plant(new Timber.DebugTree());
     }
+     */
+    Timber.plant(new Timber.DebugTree());
   }
 
   private void enableStrictMode() {

@@ -423,3 +423,6 @@ MigrationBackup/
 # End of https://www.toptal.com/developers/gitignore/api/git,c++,cmake,visualstudio
 
 build
+
+# ONNX model files (fetched separately, not committed)
+models/*.onnx

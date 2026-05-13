@@ -10,7 +10,7 @@ Android sample app (Java, **not** Kotlin) demonstrating RealSenseID face authent
 - **`SDKWrapper`** (singleton enum at `util/SDKWrapper.java`) is the central USB/device bridge. All device communication flows through it: `getSerialConfig()` → `getAuthenticator()` / `getDeviceController()`. It manages USB CDC connections with retry logic, permission handling, and connection listeners.
 - **`RealSenseIdSharedViewModel`** (`ui/shared/`) is the activity-scoped ViewModel sharing device state (type, USB connection, settings like security level, dump mode, algo flow) across all fragments.
 - **Host vs Device mode**: Enrollment and authentication have parallel implementations — `HostEnrollmentHelper` / `DeviceEnrollmentHelper` and `HostAuthenticationHelper` / `DeviceAuthenticationHelper` in `util/enroll/` and `util/auth/`. Host mode stores faceprints in a local **Room** database (`db/AppDatabase.java`, entity `User`). Device mode delegates storage to the hardware.
-- **Callback interfaces** in `callbacks/` (`AuthenticationCallback`, `EnrollmentCallback`, `RealSenseIdPreviewCallback`, `FaceDetectorCallback`) decouple UI from SDK operations.
+- **Callback interfaces** in `callbacks/` (`AuthenticationCallback`, `EnrollmentCallback`, `RealSenseIdPreviewCallback`) decouple UI from SDK operations.
 - **Preview pipeline**: `BaseRealSenseIdPreviewFragment` manages the native `Preview` object lifecycle via `PreviewHelper` (UVC stream from device). `PreviewFragment` extends it with enroll/auth UI.
 
 ## Build & Dependencies
@@ -47,3 +47,4 @@ Android sample app (Java, **not** Kotlin) demonstrating RealSenseID face authent
 - **Add a new device config setting**: Add `MutableLiveData` field to `RealSenseIdSharedViewModel`, wire it in `SettingsFragment`/`SettingsViewModel`, read it in `PreviewFragment`.
 - **Update firmware version**: Edit `firmware.properties` with new URL, raw_name, and SHA-256.
 - **Modify enrollment/auth flow**: Check whether change applies to Host mode, Device mode, or both — they are separate helper classes under `util/enroll/` and `util/auth/`.
+

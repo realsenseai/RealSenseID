@@ -39,7 +39,7 @@ int main()
         for (size_t i = 0; i < persons.size(); i++)
         {
             const auto& p = persons[i];
-            printf("  [%zu] id=%u  %u,%u  %ux%u  distance=%u\n", i, p.id, p.x, p.y, p.w, p.h, p.distance);
+            printf("  [%zu] id=%u  %u,%u  %ux%u  distance=%u  score=%.3f\n", i, p.id, p.x, p.y, p.w, p.h, p.distance, p.score);
         }
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
         if (elapsed >= DURATION_SECONDS)

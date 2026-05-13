@@ -56,11 +56,14 @@ endif()
 
 set_common_compile_opts(${PY_TARGET})
 
-# Place the .pyd/.so next to the native rsid shared library so Python can find it at runtime
-set_target_properties(${PY_TARGET} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}"
-    LIBRARY_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}"
-)
+# Place the Python module (.pyd/.so) next to the rsid shared library.
+# On Windows rsid.dll lives in bin/, on Linux librsid.so lives in lib/.
+# pybind11 modules are MODULE libraries, so LIBRARY_OUTPUT_DIRECTORY controls both .pyd and .so.
+if(WIN32)
+    set_target_properties(${PY_TARGET} PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}")
+else()
+    set_target_properties(${PY_TARGET} PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${LIBS_OUTPUT_PATH}")
+endif()
 
 get_target_property(PROJECT_SOURCES ${PY_TARGET} SOURCES)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${PROJECT_SOURCES})

@@ -7,22 +7,22 @@ along with their applicable licenses.
 
 ## Apache License 2.0 Third Party Programs
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| Mbed TLS (used under Apache 2.0) | https://github.com/Mbed-TLS/mbedtls | 2.28.10 | Copyright The Mbed TLS Contributors |
-| AndroidX AppCompat | https://developer.android.com/jetpack/androidx/releases/appcompat | 1.7.1 | Google |
-| AndroidX RecyclerView | https://developer.android.com/jetpack/androidx/releases/recyclerview | 1.4.0 | Google |
-| AndroidX ConstraintLayout | https://developer.android.com/jetpack/androidx/releases/constraintlayout | 2.2.1 | Google |
-| AndroidX Lifecycle | https://developer.android.com/jetpack/androidx/releases/lifecycle | 2.10.0 | Google |
-| AndroidX Navigation | https://developer.android.com/jetpack/androidx/releases/navigation | 2.9.7 | Google |
-| Material Components for Android | https://github.com/material-components/material-components-android | 1.13.0 | Google |
-| Room Persistence Library | https://developer.android.com/jetpack/androidx/releases/room | 2.8.4 | Google |
-| PermissionX | https://github.com/guolindev/PermissionX | 1.8.1 | Copyright (C) guolin, PermissionX Open Source Project |
-| Timber | https://github.com/JakeWharton/timber | 5.0.1 | Copyright 2013 Jake Wharton |
-| Gson | https://github.com/google/gson | 2.13.2 | Google |
-| OkHttp | https://github.com/square/okhttp | 5.3.2 | Copyright 2019 Square, Inc. |
-| OpenCV | https://github.com/opencv/opencv | 4.13.0 | Copyright (C) 2000-2024, Intel Corporation, all rights reserved. Copyright (C) 2009-2011, Willow Garage Inc., all rights reserved. Copyright (C) 2015-2024, OpenCV Foundation, all rights reserved. Third party copyrights are property of their respective owners. |
-| ML Kit Samples | https://github.com/googlesamples/mlkit | | Google |
+| Component                        | Home Page                                                                | Version | Copyright                                                                                                                                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mbed TLS (used under Apache 2.0) | https://github.com/Mbed-TLS/mbedtls                                      | 2.28.10 | Copyright The Mbed TLS Contributors                                                                                                                                                                                                                                 |
+| AndroidX AppCompat               | https://developer.android.com/jetpack/androidx/releases/appcompat        | 1.7.1   | Google                                                                                                                                                                                                                                                              |
+| AndroidX RecyclerView            | https://developer.android.com/jetpack/androidx/releases/recyclerview     | 1.4.0   | Google                                                                                                                                                                                                                                                              |
+| AndroidX ConstraintLayout        | https://developer.android.com/jetpack/androidx/releases/constraintlayout | 2.2.1   | Google                                                                                                                                                                                                                                                              |
+| AndroidX Lifecycle               | https://developer.android.com/jetpack/androidx/releases/lifecycle        | 2.10.0  | Google                                                                                                                                                                                                                                                              |
+| AndroidX Navigation              | https://developer.android.com/jetpack/androidx/releases/navigation       | 2.9.8   | Google                                                                                                                                                                                                                                                              |
+| Material Components for Android  | https://github.com/material-components/material-components-android       | 1.13.0  | Google                                                                                                                                                                                                                                                              |
+| Room Persistence Library         | https://developer.android.com/jetpack/androidx/releases/room             | 2.8.4   | Google                                                                                                                                                                                                                                                              |
+| PermissionX                      | https://github.com/guolindev/PermissionX                                 | 1.8.1   | Copyright (C) guolin, PermissionX Open Source Project                                                                                                                                                                                                               |
+| Timber                           | https://github.com/JakeWharton/timber                                    | 5.0.1   | Copyright 2013 Jake Wharton                                                                                                                                                                                                                                         |
+| Gson                             | https://github.com/google/gson                                           | 2.14.0  | Google                                                                                                                                                                                                                                                              |
+| OkHttp                           | https://github.com/square/okhttp                                         | 5.3.2   | Copyright 2019 Square, Inc.                                                                                                                                                                                                                                         |
+| OpenCV                           | https://github.com/opencv/opencv                                         | 4.13.0  | Copyright (C) 2000-2024, Intel Corporation, all rights reserved. Copyright (C) 2009-2011, Willow Garage Inc., all rights reserved. Copyright (C) 2015-2024, OpenCV Foundation, all rights reserved. Third party copyrights are property of their respective owners. |
+| ML Kit Samples                   | https://github.com/googlesamples/mlkit                                   |         | Google                                                                                                                                                                                                                                                              |
 
 ### Apache License 2.0
 
@@ -193,10 +193,13 @@ END OF TERMS AND CONDITIONS
 
 ## MIT License Third Party Programs
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| spdlog | https://github.com/gabime/spdlog | 1.17.0 | Copyright (c) 2016 Gabi Melman |
-| Font Awesome (Code) | https://github.com/FortAwesome/Font-Awesome | 5.x | Copyright 2024 Fonticons, Inc. |
+| Component           | Home Page                                       | Version | Copyright                                                       |
+| ------------------- | ----------------------------------------------- | ------- | --------------------------------------------------------------- |
+| spdlog              | https://github.com/gabime/spdlog                | 1.17.0  | Copyright (c) 2016 Gabi Melman                                  |
+| Font Awesome (Code) | https://github.com/FortAwesome/Font-Awesome     | 5.x     | Copyright 2024 Fonticons, Inc.                                  |
+| ONNX Runtime        | https://github.com/microsoft/onnxruntime        | 1.24.3  | Copyright (c) Microsoft Corporation                             |
+| stb                 | https://github.com/nothings/stb                 | n/a     | Copyright (c) 2017 Sean Barrett (dual-licensed MIT / Public Domain) |
+| Unity (test framework) | https://github.com/ThrowTheSwitch/Unity      | n/a     | Copyright (c) 2007-25 Mike Karlesky, Mark VanderVoord, & Greg Williams |
 
 ### MIT License
 
@@ -224,10 +227,10 @@ SOFTWARE.
 
 ## BSD 3-Clause "New" or "Revised" License Third Party Programs
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0 | Copyright (C) 1994-1997, Thomas G. Lane. Modified 2009-2017 by Guido Vollbeding. libjpeg-turbo Modifications: Copyright (C) 2009-2026, D. R. Commander. |
-| NumPy | https://github.com/numpy/numpy | | Copyright (c) 2005-2024, NumPy Developers |
+| Component     | Home Page                                      | Version | Copyright                                                                                                                                               |
+| ------------- | ---------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0   | Copyright (C) 1994-1997, Thomas G. Lane. Modified 2009-2017 by Guido Vollbeding. libjpeg-turbo Modifications: Copyright (C) 2009-2026, D. R. Commander. |
+| NumPy         | https://github.com/numpy/numpy                 |         | Copyright (c) 2005-2024, NumPy Developers                                                                                                               |
 
 ### BSD 3-Clause "New" or "Revised" License
 
@@ -262,9 +265,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## Modified BSD 3-Clause License Third Party Programs
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| pybind11 | https://github.com/pybind/pybind11 | 2.13.6 | Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved. |
+| Component | Home Page                          | Version | Copyright                                                                    |
+| --------- | ---------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| pybind11  | https://github.com/pybind/pybind11 | 2.13.6  | Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved. |
 
 ### Modified BSD 3-Clause License
 
@@ -299,9 +302,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## BSD 3-Clause License Third Party Programs
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| libuvc | https://github.com/libuvc/libuvc | 0.0.7 (custom) | Copyright (C) 2010-2015 Ken Tossell |
+| Component | Home Page                        | Version        | Copyright                           |
+| --------- | -------------------------------- | -------------- | ----------------------------------- |
+| libuvc    | https://github.com/libuvc/libuvc | 0.0.7 (custom) | Copyright (C) 2010-2015 Ken Tossell |
 
 ### BSD 3-Clause License
 
@@ -343,9 +346,9 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## Independent JPEG Group's JPEG Software License
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0 | Copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding. All Rights Reserved. |
+| Component     | Home Page                                      | Version | Copyright                                                                       |
+| ------------- | ---------------------------------------------- | ------- | ------------------------------------------------------------------------------- |
+| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0   | Copyright (C) 1991-2020, Thomas G. Lane, Guido Vollbeding. All Rights Reserved. |
 
 ### IJG License
 
@@ -395,9 +398,9 @@ This software is based in part on the work of the Independent JPEG Group.
 
 ## zlib License
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0 | Copyright (C) 1994-1997, Thomas G. Lane. Modified 2009-2017 by Guido Vollbeding. libjpeg-turbo Modifications: Copyright (C) 2009-2026, D. R. Commander. |
+| Component     | Home Page                                      | Version | Copyright                                                                                                                                               |
+| ------------- | ---------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| libjpeg-turbo | https://github.com/libjpeg-turbo/libjpeg-turbo | 3.1.0   | Copyright (C) 1994-1997, Thomas G. Lane. Modified 2009-2017 by Guido Vollbeding. libjpeg-turbo Modifications: Copyright (C) 2009-2026, D. R. Commander. |
 
 ### zlib License
 
@@ -425,9 +428,9 @@ the following restrictions:
 
 ## Boost Software License 1.0
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| Catch2 | https://github.com/catchorg/Catch2 | 3.13.0 | Catch2 Authors |
+| Component | Home Page                          | Version | Copyright      |
+| --------- | ---------------------------------- | ------- | -------------- |
+| Catch2    | https://github.com/catchorg/Catch2 | 3.13.0  | Catch2 Authors |
 
 ### Boost Software License - Version 1.0
 
@@ -461,9 +464,9 @@ THE SOFTWARE.
 
 ## SIL Open Font License 1.1
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| Font Awesome (Fonts) | https://github.com/FortAwesome/Font-Awesome | 5.x | Copyright 2024 Fonticons, Inc. |
+| Component            | Home Page                                   | Version | Copyright                      |
+| -------------------- | ------------------------------------------- | ------- | ------------------------------ |
+| Font Awesome (Fonts) | https://github.com/FortAwesome/Font-Awesome | 5.x     | Copyright 2024 Fonticons, Inc. |
 
 ### SIL Open Font License Version 1.1
 
@@ -553,9 +556,9 @@ OR FROM OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ## Pillow (PIL) Software License
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| Pillow | https://github.com/python-pillow/Pillow | | Copyright (c) 1997-2011 by Secret Labs AB. Copyright (c) 1995-2011 by Fredrik Lundh and contributors. Copyright (c) 2010-2024 by Jeffrey A. Clark and contributors. |
+| Component | Home Page                               | Version | Copyright                                                                                                                                                           |
+| --------- | --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pillow    | https://github.com/python-pillow/Pillow |         | Copyright (c) 1997-2011 by Secret Labs AB. Copyright (c) 1995-2011 by Fredrik Lundh and contributors. Copyright (c) 2010-2024 by Jeffrey A. Clark and contributors. |
 
 ### Pillow License
 
@@ -596,9 +599,9 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ## Creative Commons Attribution 4.0 International (CC BY 4.0)
 
-| Component | Home Page | Version | Copyright |
-|-----------|-----------|---------|-----------|
-| Font Awesome (Icons) | https://github.com/FortAwesome/Font-Awesome | 5.x | Copyright 2024 Fonticons, Inc. |
+| Component            | Home Page                                   | Version | Copyright                      |
+| -------------------- | ------------------------------------------- | ------- | ------------------------------ |
+| Font Awesome (Icons) | https://github.com/FortAwesome/Font-Awesome | 5.x     | Copyright 2024 Fonticons, Inc. |
 
 ### Creative Commons Attribution 4.0 International Public License
 
@@ -990,4 +993,3 @@ public licenses.
 
 Creative Commons may be contacted at creativecommons.org.
 ```
-

@@ -19,17 +19,15 @@ class Matcher
 public:
     // match single vs. single faceprints. Returns updated faceprints if update conditions fulfilled (indicated in
     // result.should_update).
-    static MatchResultInternal MatchFaceprints(
-        const MatchElement& probe_faceprints, const Faceprints& existing_faceprints, Faceprints& updated_faceprints,
-        ThresholdsConfidenceEnum confidenceLevel = ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High);
+    static MatchResultInternal MatchFaceprints(const MatchElement& probe_faceprints, const Faceprints& existing_faceprints,
+                                               Faceprints& updated_faceprints);
 
     // match single vs. an array of faceprints. Used e.g. when matching user against a set of users in the database.
     // returns updated faceprints if update conditions fulfilled (indicated in result.should_update).
     // internal thresholds will be used.
-    static ExtendedMatchResult MatchFaceprintsToArray(
-        const MatchElement& probe_faceprints, const std::vector<UserFaceprints_t>& existing_faceprints_array,
-        Faceprints& updated_faceprints,
-        const ThresholdsConfidenceEnum confidenceLevel = ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High);
+    static ExtendedMatchResult MatchFaceprintsToArray(const MatchElement& probe_faceprints,
+                                                      const std::vector<UserFaceprints_t>& existing_faceprints_array,
+                                                      Faceprints& updated_faceprints);
 
     // match single vs. an array of faceprints. Used e.g. when matching user against a set of users in the database.
     // returns updated faceprints if update conditions fulfilled (indicated in result.should_update).
@@ -75,7 +73,7 @@ private:
 
     static bool IsSameVersion(const MatchElement& newFaceprints, const Faceprints& existingFaceprints);
 
-    static void SetToDefaultThresholds(Thresholds& thresholds, const ThresholdsConfidenceEnum confidenceLevel);
+    static void SetToDefaultThresholds(Thresholds& thresholds);
 
     static void InitAdaptiveThresholds(const Thresholds& thresholds, AdaptiveThresholds& adaptiveThresholds);
 };

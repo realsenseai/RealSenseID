@@ -207,9 +207,9 @@ Status FaceAuthenticator::ExtractFaceprintsForAuthLoop(AuthFaceprintsExtractionC
 }
 
 MatchResultHost FaceAuthenticator::MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints,
-                                                   Faceprints& updated_faceprints, ThresholdsConfidenceEnum matcher_confidence_level)
+                                                   Faceprints& updated_faceprints)
 {
-    return _impl->MatchFaceprints(new_faceprints, existing_faceprints, updated_faceprints, matcher_confidence_level);
+    return _impl->MatchFaceprints(new_faceprints, existing_faceprints, updated_faceprints);
 }
 
 Status FaceAuthenticator::GetUsersFaceprints(Faceprints* user_features, unsigned int& num_of_users)
@@ -232,7 +232,6 @@ Status FaceAuthenticator::MountDebug()
     return _impl->MountDebug();
 }
 
-#ifdef RSID_ONE2ONE
 EnrollStatus FaceAuthenticator::EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width,
                                                     unsigned int height)
 {
@@ -249,15 +248,9 @@ AuthenticateStatus FaceAuthenticator::AuthenticateImageOneToOne(const unsigned c
 {
     return _impl->AuthenticateImageOneToOne(buffer, width, height, user_id, score);
 }
-Status FaceAuthenticator::ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                                  ExtractedFaceprints* pExtractedFaceprints)
+Status FaceAuthenticator::DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result,
+                                     bool expand_roi)
 {
-    return _impl->ExtractFaceprintsOnHost(buffer, width, height, pExtractedFaceprints);
+    return _impl->DetectFace(buffer, width, height, result, expand_roi);
 }
-
-Status FaceAuthenticator::DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result)
-{
-    return _impl->DetectFace(buffer, width, height, result);
-}
-#endif // RSID_ONE2ONE
 } // namespace RealSenseID

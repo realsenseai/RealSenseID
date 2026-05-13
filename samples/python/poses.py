@@ -24,14 +24,15 @@ def on_poses(poses, timestamp, status):
     global _start_time
     if _start_time is None:
         _start_time = time.time()
-    print(f"detected {len(poses)} pose(s) (ts={timestamp}, status={status})")
+    print(f"\tDetected {len(poses)} pose(s) (ts={timestamp}, status={status})")
     for i, p in enumerate(poses):
-        print(f"  [{i}] x={p.x} y={p.y} {p.w}x{p.h}")
+        print(f"\t[{i}] Person at (x, y)=({p.x}, {p.y}) with size {p.w}x{p.h}")
         for idx, lm in enumerate(p.landmarks):
             name = LANDMARK_NAMES[idx] if idx < len(LANDMARK_NAMES) else f"landmark_{idx}"
-            print(f"    {name.ljust(14)}: (x, y)=({lm[0]:4d}, {lm[1]:4d}), score={lm[2]:.4f}")
+            print(
+                f"\t  {name.ljust(14)}: (x, y)=({lm[0]:4d}, {lm[1]:4d}), score={lm[2]:.4f}")
     if time.time() - _start_time >= DURATION_SECONDS:
-        print(f"Stopping after {DURATION_SECONDS} seconds.")
+        print(f"\tStopping after {DURATION_SECONDS} seconds.")
         return False
     return True
 
@@ -45,6 +46,6 @@ if __name__ == '__main__':
         print("Error: Multiple devices detected. Please connect only one.")
         exit(1)
     device = devices[0]
-    print(f"Using device on port {device.serial_port}")
+    print(f"\tUsing device on port {device.serial_port}")
     with rsid_py.FaceAuthenticator(device.device_type, device.serial_port) as f:
         f.detect_poses(callback=on_poses, loop=True)

@@ -32,17 +32,6 @@ extern "C"
         RSID_SecLevel_Low = 2     // low device to run recognition only without AS.
     } rsid_security_level_type;
 
-    // we allow 3 confidence levels. This is used in our Matcher during authentication :
-    // each level means a different set of thresholds is used.
-    // This allow the user the flexibility to choose between 3 different FPR rates (Low, Medium, High).
-    // Currently all sets are the "High" confidence level thresholds.
-    typedef enum
-    {
-        RSID_MatcherConfLevel_High = 0,   // default
-        RSID_MatcherConfLevel_Medium = 1, //
-        RSID_MatcherConfLevel_Low = 2     //
-    } rsid_matcher_confidence_level_type;
-
     typedef enum
     {
         RSID_AlgoMode_All = 0,            // default mode to run all algo(s)
@@ -69,14 +58,6 @@ extern "C"
         RSID_PersonMotionMode_Static = 0, // default
         RSID_PersonMotionMode_Walkthrough = 1
     } rsid_person_motion_mode_type;
-
-    typedef enum
-    {
-        RSID_DistanceLimit_NoLimit = 0,
-        RSID_DistanceLimit_Short = 1,
-        RSID_DistanceLimit_Medium = 2,
-        RSID_DistanceLimit_Long = 3
-    } rsid_distance_limit_type;
 
     typedef enum
     {

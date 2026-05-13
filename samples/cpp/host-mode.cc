@@ -124,11 +124,6 @@ public:
         RealSenseID::MatchResultHost winning_match_result;
         RealSenseID::Faceprints winning_updated_faceprints;
 
-        // use High by default.
-        // should be taken from DeviceConfig.
-        RealSenseID::ThresholdsConfidenceEnum matcher_confidence_level =
-            RealSenseID::ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High;
-
         int users_index = 0;
 
         for (auto& iter : s_user_faceprint_db)
@@ -137,8 +132,7 @@ public:
             auto& existing_faceprint = iter.second;       // faceprints at the DB
             auto& updated_faceprint = existing_faceprint; // updated faceprints
 
-            auto match =
-                _authenticator->MatchFaceprints(scanned_faceprint, existing_faceprint, updated_faceprint, matcher_confidence_level);
+            auto match = _authenticator->MatchFaceprints(scanned_faceprint, existing_faceprint, updated_faceprint);
 
             int current_score = (int)match.score;
 

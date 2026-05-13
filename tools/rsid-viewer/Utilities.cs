@@ -23,52 +23,14 @@ namespace rsid_wrapper_csharp
     {
         // return (result 1d array, width, height, result bitmap)
         // if resize is true  rescale and return the rescaled byte array
-        public static Tuple<byte[], int, int, Bitmap> ToBgr(string filename, bool resize)
+        public static Tuple<byte[], int, int, Bitmap> ToBgr(string filename)
         {
             var bmp = new Bitmap(filename);
-            FixOrientation(bmp);
-            if (resize)
-            {
-                bmp = ResizeToDim(bmp, 320);
-            }
+            FixOrientation(bmp);            
             var arr = ToBgr(bmp);
             return Tuple.Create(arr, bmp.Width, bmp.Height, bmp);
         }
-
-        // Resize to dimension while perserving oroginal aspect ratio.
-        // Note: If original image is smaller than required dimenstion, return original without scaling
-        private static Bitmap ResizeToDim(Bitmap img, int dimenstion)
-        {
-            if (img.Width <= dimenstion && img.Height <= dimenstion)
-                return img;
-
-            int newWidth = 0;
-            int newHeight = 0;
-            if (img.Width > img.Height)
-            {
-                newWidth = dimenstion;
-                var scaleH = (double)newWidth / (double)img.Width;
-                newHeight = (int)Math.Round(img.Height * scaleH);
-            }
-            else
-            {
-                newHeight = dimenstion;
-                var scaleW = (double)newHeight / (double)img.Height;
-                newWidth = (int)Math.Round(img.Width * scaleW);
-            }
-
-            Logger.Log($"Resizing image to {newWidth}x{newHeight}");
-
-            var resultBitmap = new Bitmap(newWidth, newHeight);
-            using (var g = Graphics.FromImage(resultBitmap))
-            {
-                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.DrawImage(img, 0, 0, newWidth, newHeight);
-            }
-
-            return resultBitmap;
-        }
-
+  
         public static byte[] ToBgr(Bitmap image)
         {
             var bpp = 3;

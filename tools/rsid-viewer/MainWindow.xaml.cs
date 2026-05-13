@@ -84,9 +84,7 @@ namespace rsid_wrapper_csharp
 
         private IntPtr _signatureHelpeHandle = IntPtr.Zero;
         private Database _db;// = new Database();
-#if RSID_ONE2ONE
         private rsid.Faceprints _lastOne2OneEnrolledFaceprints = new rsid.Faceprints();
-#endif
 
         private string _dumpDir;
         private ProgressBarDialog _progressBar;
@@ -235,21 +233,17 @@ namespace rsid_wrapper_csharp
             };
             if (FlowMode.Server == _flowMode)
             {
-#if RSID_ONE2ONE
                 if (OneToOneToggle.IsChecked.GetValueOrDefault())
                     Task.Run(() => EnrollImageOne2OneHostJob(enrollData, false));
                 else
-#endif
-                Task.Run(() => EnrollImageHostJob(enrollData, false));
+                    Task.Run(() => EnrollImageHostJob(enrollData, false));
             }
             else
             {
-#if RSID_ONE2ONE
                 if (OneToOneToggle.IsChecked.GetValueOrDefault())
                     Task.Run(() => EnrollImageOneToOneJob(enrollData, false));
                 else
-#endif
-                Task.Run(() => EnrollImageJob(enrollData, false));
+                    Task.Run(() => EnrollImageJob(enrollData, false));
             }
         }
 
@@ -400,12 +394,10 @@ namespace rsid_wrapper_csharp
                 }
                 else
                 {
-#if RSID_ONE2ONE
                     if (OneToOneToggle.IsChecked.GetValueOrDefault())
                         ThreadPool.QueueUserWorkItem(AuthenticateExtractFaceprintsOne2OneJob);
                     else
-#endif
-                    ThreadPool.QueueUserWorkItem(AuthenticateExtractFaceprintsJob);
+                        ThreadPool.QueueUserWorkItem(AuthenticateExtractFaceprintsJob);
                 }
             }
             else
@@ -416,12 +408,10 @@ namespace rsid_wrapper_csharp
                 }
                 else
                 {
-#if RSID_ONE2ONE
                     if (OneToOneToggle.IsChecked.GetValueOrDefault())
                         ThreadPool.QueueUserWorkItem(AuthenticateOneToOneJob);
                     else
-#endif //RSID_ONE2ONE
-                    ThreadPool.QueueUserWorkItem(AuthenticateJob);
+                        ThreadPool.QueueUserWorkItem(AuthenticateJob);
                 }
             }
         }
@@ -1077,7 +1067,6 @@ namespace rsid_wrapper_csharp
             AuthenticateButton.IsEnabled = isEnabled;
             AuthenticateLoopToggle.IsEnabled = isEnabled;
 
-#if RSID_ONE2ONE
             OneToOneToggle.Visibility = Visibility.Visible;
             if (_operationMode == OperationMode.FaceDetectionOnly || _operationMode == OperationMode.SpoofOnly)
             {
@@ -1088,7 +1077,6 @@ namespace rsid_wrapper_csharp
                 OneToOneToggle.IsEnabled = isEnabled;
             }
             ToggleOneToOne(isEnabled);
-#endif
             UsersListView.IsEnabled = isEnabled && isRecogEnabled;
             SelectAllUsersCheckBox.IsEnabled = isEnabled && isRecogEnabled && _userList?.Length > 0;
 
@@ -1198,7 +1186,6 @@ namespace rsid_wrapper_csharp
             ShowLog(" * Camera Index: " + _deviceState.PreviewConfig.cameraNumber);
             ShowLog(" * Preview Mode: " + _deviceState.PreviewConfig.previewMode);
             ShowLog(" * Person Motion Mode: " + deviceConfig.personMotionMode.ToString());
-            ShowLog(" * Matcher Confidence Level: " + deviceConfig.matcherConfidenceLevel.ToString());
             ShowLog(" * Max Spoofs: " + deviceConfig.maxSpoofs.ToString());
             ShowLog(" * Matching Threshold: " + deviceConfig.matchThresh.ToString());
             ShowLog(" * Sensor Exposure Time: " + deviceConfig.sensorExpTime.ToString());
@@ -1212,7 +1199,7 @@ namespace rsid_wrapper_csharp
             {
                 ShowLog($" * ROI[{i}] X: {deviceConfig.detection_rois[i].x}  Y: {deviceConfig.detection_rois[i].y}  Width: {deviceConfig.detection_rois[i].width}  Height: {deviceConfig.detection_rois[i].height}");
             }
-            ShowLog(" * Distance Limit: " + deviceConfig.distanceLimit.ToString());
+            ShowLog(" * Distance Limit (cm): " + deviceConfig.distanceLimitCm.ToString());
             ShowLog(" * Distance Calculation Enable: " + deviceConfig.distanceEnabled.ToString());
             ShowLog("");
         }
@@ -1316,9 +1303,6 @@ namespace rsid_wrapper_csharp
 
                 int usersIndex = 0;
 
-                // take the value from DeviceConfig.matcherConfidenceLevel.
-                var matcherConfidenceLevel = _deviceState.DeviceConfig.matcherConfidenceLevel;
-
                 foreach (var (faceprintsDb, userIdDb) in _db.FaceprintsArray)
                 {
                     // note we must send initialized vectors to MatchFaceprintsToFaceprints().
@@ -1328,7 +1312,6 @@ namespace rsid_wrapper_csharp
                         newFaceprints = faceprintsToMatchObject,
                         existingFaceprints = faceprintsDb,
                         updatedFaceprints = faceprintsDb, // init updated to existing vector.
-                        matcherConfidenceLevel = matcherConfidenceLevel
                     };
 
                     var matchResult = _authenticator.MatchFaceprintsToFaceprints(ref matchArgs);
@@ -1470,6 +1453,7 @@ namespace rsid_wrapper_csharp
             // show detected faces
             foreach (var (face, landmarks, status, userId, score, frameScore) in _detectedFaces)
             {
+
                 // convert face rect coords FHD=>VGA
                 double scaleX, scaleY;
                 const double RawLongDim = 1920.0, RawShortDim = 1080.0;
@@ -2173,6 +2157,10 @@ namespace rsid_wrapper_csharp
             {
                 ResetOverlay();
             }
+            else if (hint == AuthStatus.FaceTooFar)
+            {
+                UpdateFaceResult(hint, null, 0);
+            }
         }
 
         private void OnAuthResult(AuthStatus status, string userId, short score, IntPtr ctx)
@@ -2421,7 +2409,7 @@ namespace rsid_wrapper_csharp
             foreach (var person in persons)
             {
                 var distanceInfo = person.distance != 0 ? $" {person.distance} cm" : string.Empty;
-                ShowLog($" * [{person.bodyPart}] [{person.x},{person.y} {person.width}x{person.height}]{distanceInfo}");
+                ShowLog($" * [{person.bodyPart}] [{person.x},{person.y} {person.width}x{person.height}]{distanceInfo} score={person.score:F2}");
             }
 
             NormalDispatch(() =>
@@ -2458,23 +2446,26 @@ namespace rsid_wrapper_csharp
 
         private void OnFaceCroppedImage(IntPtr buf, int w, int h, uint ts, IntPtr ctx)
         {
-            ShowLog($"OnFaceCroppedImage [{w}x{h},ts={ts}]");
-            var accessories = FilterAccesories(_sessionHints);
-            int channels = 3; //rgb
-            var image = new PreviewImage
+            Task.Run(() => // run in background to avoid blocking the communication with the device, since dumping to disk can be slow
             {
-                buffer = buf,
-                width = w,
-                height = h,
-                stride = w * channels,
-                metadata = new PreviewImageMetadata
+                ShowLog($"OnFaceCroppedImage [{w}x{h},ts={ts}]");
+                var accessories = FilterAccesories(_sessionHints);
+                int channels = 3; //rgb
+                var image = new PreviewImage
                 {
-                    timestamp = ts,
-                },
-            };
-            var filename = _frameDumper.DumpPreviewImage(image, accessories);
-            if (filename != null)
-                ShowDumpFile(filename, ts);
+                    buffer = buf,
+                    width = w,
+                    height = h,
+                    stride = w * channels,
+                    metadata = new PreviewImageMetadata
+                    {
+                        timestamp = ts,
+                    },
+                };
+                var filename = _frameDumper.DumpPreviewImage(image, accessories);
+                if (filename != null)
+                    ShowDumpFile(filename, ts);
+            });
         }
 
         public void OnAuthLoopExtractionResult(AuthStatus status, IntPtr faceprintsHandle, IntPtr ctx)
@@ -3083,7 +3074,7 @@ namespace rsid_wrapper_csharp
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, true);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename);
 
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
@@ -3157,7 +3148,7 @@ namespace rsid_wrapper_csharp
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, true);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename);
 
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
@@ -3425,7 +3416,6 @@ namespace rsid_wrapper_csharp
             }
         }
 
-#if RSID_ONE2ONE
         private void ToggleOneToOne(bool isEnabled)
         {
             if (OneToOneToggle.IsChecked.GetValueOrDefault())
@@ -3451,25 +3441,19 @@ namespace rsid_wrapper_csharp
                 AuthenticateLoopToggle.IsEnabled = isEnabled;
             }
         }
-#endif
 
         private void OneToOneCheckBox_Checked(object sender, RoutedEventArgs e)
         {
-#if RSID_ONE2ONE
             ToggleOneToOne(true);
-#endif
         }
 
         private void OneToOneCheckBox_Unchecked(object sender, RoutedEventArgs e)
         {
-#if RSID_ONE2ONE
             ToggleOneToOne(true);
-#endif
         }
 
         private void AuthenticateImgButton_Click(object sender, RoutedEventArgs e)
         {
-#if RSID_ONE2ONE
             var openFileDialog = new OpenFileDialog
             {
                 CheckFileExists = true,
@@ -3481,20 +3465,19 @@ namespace rsid_wrapper_csharp
             if (openFileDialog.ShowDialog() == false)
                 return;
             Task.Run(() => AuthenticateImageOne2OneJob(openFileDialog.FileName));
-#endif
         }
 
-#if RSID_ONE2ONE
         // Enroll Job
         private bool EnrollImageOneToOneJob(EnrollImageRecord enrollRecord, bool isBatch)
         {
+            var now = DateTime.Now;
             var success = false;
             IntPtr userIdCtx = IntPtr.Zero;
             if (!ConnectAuth()) return false;
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, false);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename);
 
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 userIdCtx = Marshal.StringToHGlobalUni(enrollRecord.UserId);
@@ -3547,23 +3530,29 @@ namespace rsid_wrapper_csharp
                 if (userIdCtx != IntPtr.Zero)
                     Marshal.FreeHGlobal(userIdCtx);
             }
+            // log elaped time
+            var elapsed = DateTime.Now - now;
+            ShowLog($"Elapsed time: {elapsed.TotalMilliseconds} milliseconds");
             return success;
         }
 
         // Authenticate Job
         private bool AuthenticateImageOne2OneJob(string filename)
         {
+            var now = DateTime.Now;
             var success = false;
             const int maxImageSize = 10 * 1024 * 1024;
             if (!ConnectAuth()) return false;
 
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(filename, false);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(filename);
 
                 // validate file not bigger than max allowed
                 if (buffer.Length > maxImageSize * 3)
                     throw new Exception("File too big");
+
+                OnStartSession("Authenticate Image", false);
 
                 // show uploaded image on preview panel
                 NormalDispatch(() =>
@@ -3616,12 +3605,16 @@ namespace rsid_wrapper_csharp
                 _busy = false;
                 _authenticator.Disconnect();
             }
+            // log elaped time
+            var elapsed = DateTime.Now - now;
+            ShowLog($"Elapsed time: {elapsed.TotalMilliseconds} milliseconds");
             return success;
         }
 
         // Authenticate job
         private void AuthenticateOneToOneJob(Object threadContext)
         {
+            var now = DateTime.Now;
             if (!ConnectAuth()) return;
             OnStartSession("Authenticate", true);
             try
@@ -3658,16 +3651,20 @@ namespace rsid_wrapper_csharp
                 HideAuthenticatingLabelPanel();
                 _busy = false;
                 _authenticator.Disconnect();
+                // log elaped time
+                var elapsed = DateTime.Now - now;
+                ShowLog($"Elapsed time: {elapsed.TotalMilliseconds} milliseconds");
             }
         }
 
         // Extract faceprints job using host only and save in memory the result
         private bool EnrollImageOne2OneHostJob(EnrollImageRecord enrollRecord, bool isBatch)
         {
+            if (!ConnectAuth()) return false;
             var success = false;
             try
             {
-                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename, false);
+                var (buffer, w, h, bitmap) = ImageHelper.ToBgr(enrollRecord.Filename);
                 OnStartSession($"Enroll {enrollRecord.UserId}", true);
                 // show uploaded image on preview panel
                 NormalDispatch(() =>
@@ -3697,23 +3694,19 @@ namespace rsid_wrapper_csharp
                 ShowProgressTitle("Extracting Features..");
                 _busy = true;
 
-                var features = new rsid.ExtractedFaceprints();
-                var status = _authenticator.ExtractFaceprintsOnHost(buffer, w, h, ref features);
+                var features = new rsid.Faceprints();
+                var status = _authenticator.EnrollImageFeatureExtraction(enrollRecord.UserId, buffer, w, h, ref features);
 
-                var logMsg = status == Status.Ok ? "Extract success" : status.ToString();
-                VerifyResult(status == Status.Ok, logMsg, logMsg);
-                if (status == Status.Ok)
+                var logMsg = status == EnrollStatus.Success ? "Extract success" : status.ToString();
+                VerifyResult(status == EnrollStatus.Success, logMsg, logMsg);
+                if (status == EnrollStatus.Success)
                 {
                     _lastEnrolledUserId = enrollRecord.UserId;
                     // convert to Faceprints object (db format)
-                    _lastOne2OneEnrolledFaceprints.featuresType = features.featuresType;
-                    _lastOne2OneEnrolledFaceprints.version = features.version;
-                    _lastOne2OneEnrolledFaceprints.flags = features.flags;
-                    _lastOne2OneEnrolledFaceprints.adaptiveDescriptorWithoutMask = features.featuresVector;
-
+                    _lastOne2OneEnrolledFaceprints = features;
                     RefreshUserListServer();
                 }
-                success = status == Status.Ok;
+                success = status == EnrollStatus.Success;
 
             }
             catch (Exception ex)
@@ -3752,7 +3745,6 @@ namespace rsid_wrapper_csharp
                     newFaceprints = faceprintsToMatchObject,
                     existingFaceprints = _lastOne2OneEnrolledFaceprints,
                     updatedFaceprints = new Faceprints(),
-                    matcherConfidenceLevel = _deviceState.DeviceConfig.matcherConfidenceLevel
                 };
 
                 var matchResult = _authenticator.MatchFaceprintsToFaceprints(ref matchArgs);
@@ -3810,7 +3802,6 @@ namespace rsid_wrapper_csharp
 
             }
         }
-#endif //RSID_ONE2ONE
 
         // Authentication loop job
         private void AuthenticateLoopJob(Object threadContext)
@@ -4016,9 +4007,9 @@ namespace rsid_wrapper_csharp
                      deviceConfig.algoFlow == DeviceConfig.AlgoFlow.FaceDetectionOnly))
                 {
                     ShowLog("DB on Host is not supported with Spoof Only or Face Detection Only algo flows");
-                    throw new Exception("Invalid settings");                
+                    throw new Exception("Invalid settings");
                 }
-                
+
                 ShowProgressTitle("SetDeviceConfig");
 
                 PreviewConfig.deviceType = _deviceState.deviceType;

@@ -11,10 +11,6 @@ if(RSID_SECURE)
     add_definitions(-DRSID_SECURE)
 endif()
 
-if(RSID_ONE2ONE)
-    add_definitions(-DRSID_ONE2ONE)
-endif()
-
 set_target_properties(${LIBRSID_CSHARP_TARGET} PROPERTIES DEBUG_POSTFIX ${RSID_DEBUG_POSTFIX}
                                                           VS_DOTNET_TARGET_FRAMEWORK_VERSION "v4.8")
 

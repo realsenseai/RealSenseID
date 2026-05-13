@@ -45,10 +45,7 @@ Read these before generating any RealSenseID code — these are patterns AI mode
 5. **F50x-only APIs.**
    `DetectPersons`, `DetectPoses`, `DetectBodyParts`, `DecodeBarcodes` are F50x-only. On F45x expect `Status::NotSupported`.
 
-6. **Use SDK confidence enums for thresholding.**
-   Use `ThresholdsConfidenceLevel_High/Medium/Low` — never hardcode score cutoffs.
-
-7. **Don't memcpy faceprint internals unsafely.**
+6. **Don't memcpy faceprint internals unsafely.**
    Treat faceprint struct layouts as SDK-defined and versioned. Only copy between documented fields.
 
 8. **Serial port name on Windows (COM10+).**
@@ -144,7 +141,7 @@ auth.Enroll(new rsid.EnrollArgs {
 });
 ```
 
-**Image enrollment** (BGR24, face ≥75% of area, max 900KB): `EnrollImage("john", buf, w, h)` / `enroll_image(...)` / `auth.EnrollImage(...)`.
+**Image enrollment** (BGR24, exactly one face in image, face width and height each >= 144 px): `EnrollImage("john", buf, w, h)` / `enroll_image(...)` / `auth.EnrollImage(...)`.
 
 ### Authentication
 
@@ -235,8 +232,7 @@ scanned.data.flags = RealSenseID::FaOperationFlagsEnum::OpFlagAuthWithoutMask;
 ::memcpy(scanned.data.featuresVector, auth_clbk.extracted.data.featuresVector,
          sizeof(auth_clbk.extracted.data.featuresVector));
 RealSenseID::Faceprints updated;
-auto result = authenticator.MatchFaceprints(scanned, enroll_clbk.db_entry, updated,
-    RealSenseID::ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High);
+auto result = authenticator.MatchFaceprints(scanned, enroll_clbk.db_entry, updated);
 if (result.success && result.should_update)
     enroll_clbk.db_entry = updated;  // persist adaptive update
 ```
@@ -315,10 +311,9 @@ auth.RemoveAllUsers();
 | `algo_flow` | `AlgoFlow` | `FaceDetectionOnly` |
 | `face_selection_policy` | `FaceSelectionPolicy` | `Single` |
 | `dump_mode` | `DumpMode` | `None` |
-| `matcher_confidence_level` | `MatcherConfidenceLevel` | `Low` |
 | `frontal_face_policy` | `FrontalFacePolicy` | `None` |
 | `person_motion_mode` | `PersonMotionMode` | `Static` |
-| `distance_limit` | `DistanceLimit` | `None` |
+| `distance_limit_cm` | `uint8` | `0` (no limit, 1-150 = cm) |
 | `max_spoofs` | `uint8` | `0` (disabled) |
 | `match_thresh` | `uint16` | `0` (device recommended) |
 | `gpio_auth_toggling` | `int` | `0` (disabled) |
@@ -335,10 +330,9 @@ auth.RemoveAllUsers();
 - **AlgoFlow:** `All`, `FaceDetectionOnly`, `SpoofOnly`, `RecognitionOnly`
 - **FaceSelectionPolicy:** `Single` (closest), `All` (up to 5)
 - **DumpMode:** `None`, `CroppedFace`, `FullFrame`. Python: `DumpMode.Disable` (not `None`)
-- **MatcherConfidenceLevel:** `High`, `Medium`, `Low`
 - **FrontalFacePolicy:** `None`, `Moderate`, `Strict`
 - **PersonMotionMode:** `Static`, `Walkthrough`
-- **DistanceLimit:** `None`, `Short` (70cm), `Mid` (100cm), `Long` (130cm)
+- **distance_limit_cm:** `0` = no limit, `1`-`150` = max distance in centimeters
 
 **API:** `QueryDeviceConfig(config)` / `SetDeviceConfig(config)`. Python: `query_device_config()` / `set_device_config()`. C#: same names with `out` parameter.
 

@@ -177,7 +177,7 @@ TEST_CASE("FwUpdate F50x - ParseUfifToModules multi-module", "[FwUpdate][F50x]")
 
     std::vector<ModuleSpec> specs = {
         {std::string("fw/SBC.1.0.0.0.sbin"), data1},
-        {std::string("fw/RECOG.2.5.24.0.sbin"), data2},
+        {std::string("fw/FEATURES.2.5.24.0.sbin"), data2},
     };
 
     BuildUfifFile(tf.path, 2, specs);
@@ -185,7 +185,7 @@ TEST_CASE("FwUpdate F50x - ParseUfifToModules multi-module", "[FwUpdate][F50x]")
     auto modules = RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size);
     REQUIRE(modules.size() == 2);
     REQUIRE(modules[0].name == "OPFW");
-    REQUIRE(modules[1].name == "RECOG");
+    REQUIRE(modules[1].name == "FEATURES");
     REQUIRE(modules[1].version == "2.5.24.0");
 }
 
@@ -196,7 +196,7 @@ TEST_CASE("FwUpdate F50x - ParseUfifToModules multiple blocks", "[FwUpdate][F50x
     // 10000 bytes -> aligned to 12288 (3*4K) -> 3 blocks
     auto module_data = MakeModuleData(10000, 0x55);
 
-    BuildUfifFile(tf.path, 1, {{std::string("fw/RECOG.1.0.0.0.sbin"), module_data}});
+    BuildUfifFile(tf.path, 1, {{std::string("fw/FEATURES.1.0.0.0.sbin"), module_data}});
 
     auto modules = RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size);
     REQUIRE(modules.size() == 1);
@@ -238,7 +238,7 @@ TEST_CASE("FwUpdate F50x - ParseUfifToModules error cases", "[FwUpdate][F50x]")
         TempFile tf;
         // Non-BOOT module with size < 1024 (MIN_MODULE_SIZE)
         auto module_data = MakeModuleData(512);
-        BuildUfifFile(tf.path, 1, {{std::string("fw/RECOG.1.0.0.0.sbin"), module_data}});
+        BuildUfifFile(tf.path, 1, {{std::string("fw/FEATURES.1.0.0.0.sbin"), module_data}});
         REQUIRE_THROWS_AS(RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size), std::runtime_error);
     }
 
@@ -402,7 +402,7 @@ TEST_CASE("FwUpdate F50x - Malformed: module size boundaries", "[FwUpdate][F50x]
     {
         TempFile tf;
         auto module_data = MakeModuleData(1024);
-        BuildUfifFile(tf.path, 1, {{std::string("fw/RECOG.1.0.0.0.sbin"), module_data}});
+        BuildUfifFile(tf.path, 1, {{std::string("fw/FEATURES.1.0.0.0.sbin"), module_data}});
         REQUIRE_NOTHROW(RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size));
     }
 }
@@ -503,7 +503,7 @@ TEST_CASE("FwUpdate F50x - Malformed: second entry invalid rejects entire file",
 
     std::vector<ModuleSpec> specs = {
         {std::string("fw/SBC.1.0.0.0.sbin"), valid_data},
-        {std::string("fw/RECOG.1.0.0.0.sbin"), invalid_data},
+        {std::string("fw/FEATURES.1.0.0.0.sbin"), invalid_data},
     };
 
     BuildUfifFile(tf.path, 2, specs);
@@ -565,7 +565,7 @@ TEST_CASE("FwUpdate F50x - Module size exactly 4K aligned", "[FwUpdate][F50x]")
     TempFile tf;
     auto module_data = MakeModuleData(4096);
 
-    BuildUfifFile(tf.path, 1, {{std::string("fw/RECOG.1.0.0.0.sbin"), module_data}});
+    BuildUfifFile(tf.path, 1, {{std::string("fw/FEATURES.1.0.0.0.sbin"), module_data}});
 
     auto modules = RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size);
     REQUIRE(modules.size() == 1);
@@ -580,7 +580,7 @@ TEST_CASE("FwUpdate F50x - Module size 4K+1 alignment", "[FwUpdate][F50x]")
     TempFile tf;
     auto module_data = MakeModuleData(4097);
 
-    BuildUfifFile(tf.path, 1, {{std::string("fw/RECOG.1.0.0.0.sbin"), module_data}});
+    BuildUfifFile(tf.path, 1, {{std::string("fw/FEATURES.1.0.0.0.sbin"), module_data}});
 
     auto modules = RealSenseID::FwUpdateF50x::ParseUfifToModules(tf.path, block_size);
     REQUIRE(modules.size() == 1);
@@ -599,7 +599,7 @@ TEST_CASE("FwUpdate F50x - Multi-module alignment gap", "[FwUpdate][F50x]")
 
     std::vector<ModuleSpec> specs = {
         {std::string("fw/SBC.1.0.0.0.sbin"), data1},
-        {std::string("fw/RECOG.1.0.0.0.sbin"), data2},
+        {std::string("fw/FEATURES.1.0.0.0.sbin"), data2},
     };
 
     BuildUfifFile(tf.path, 2, specs);
@@ -608,7 +608,7 @@ TEST_CASE("FwUpdate F50x - Multi-module alignment gap", "[FwUpdate][F50x]")
     REQUIRE(modules.size() == 2);
     REQUIRE(modules[0].name == "OPFW");
     REQUIRE(modules[0].size == 2050);
-    REQUIRE(modules[1].name == "RECOG");
+    REQUIRE(modules[1].name == "FEATURES");
     REQUIRE(modules[1].size == 1024);
 }
 
@@ -629,7 +629,7 @@ TEST_CASE("FwUpdate F50x - Malformed: version string edge cases", "[FwUpdate][F5
 
     SECTION("All recognized module types parse correctly")
     {
-        std::vector<std::string> types = {"RECOG", "YOLO", "DNET", "NNLED", "SPOOFS", "ACCNET"};
+        std::vector<std::string> types = {"FEATURES", "YOLO", "DNET", "NNLED", "SPOOFS", "ACCNET"};
         for (const auto& type : types)
         {
             TempFile tf;

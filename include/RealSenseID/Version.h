@@ -7,8 +7,8 @@
 #include <string>
 
 #define RSID_VER_MAJOR 3
-#define RSID_VER_MINOR 3
-#define RSID_VER_PATCH 2
+#define RSID_VER_MINOR 6
+#define RSID_VER_PATCH 1
 #define RSID_VERSION   (RSID_VER_MAJOR * 10000 + RSID_VER_MINOR * 100 + RSID_VER_PATCH)
 
 // Compatible firmware versions for found on F4xx devices
@@ -17,11 +17,11 @@
 
 // F450
 #define RSID_FW45x_VER_MAJOR 9
-#define RSID_FW45x_VER_MINOR 11
+#define RSID_FW45x_VER_MINOR 16
 
 // F500
 #define RSID_FW46x_VER_MAJOR 2
-#define RSID_FW46x_VER_MINOR 11
+#define RSID_FW46x_VER_MINOR 16
 
 namespace RealSenseID
 {

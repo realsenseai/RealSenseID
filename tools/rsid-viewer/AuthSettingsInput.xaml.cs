@@ -98,7 +98,7 @@ namespace rsid_wrapper_csharp
         }
 
         public static readonly DependencyProperty ModeProperty =
-            DependencyProperty.Register("Mode", typeof(Mode), typeof(AuthSettingsInput), 
+            DependencyProperty.Register("Mode", typeof(Mode), typeof(AuthSettingsInput),
                 new PropertyMetadata(Mode.Face, OnModeChanged));
 
         private static void OnModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -186,10 +186,7 @@ namespace rsid_wrapper_csharp
             StaticMode.IsEnabled = hasConfig;
             WalkthroughMode.IsEnabled = hasConfig;
 
-            NoDistanceLimit.IsEnabled = hasConfig;
-            DistanceLimit70cm.IsEnabled = hasConfig;
-            DistanceLimit100cm.IsEnabled = hasConfig;
-            DistanceLimit130cm.IsEnabled = hasConfig;
+            DistanceLimitSlider.IsEnabled = hasConfig;
 
             bool previewEnabledAuth = previewEnabled && hasConfig;
 
@@ -204,7 +201,6 @@ namespace rsid_wrapper_csharp
             if (MyMainWindow.GetDeviceType() == DeviceType.F45x)
             {
                 ModeGrid.Visibility = Visibility.Collapsed;
-                CheckForUpdatesLink.Visibility = Visibility.Visible;
             }
 
             UpdateDistanceSettingsVisibility();
@@ -239,9 +235,6 @@ namespace rsid_wrapper_csharp
 
             ValidateDependentSettings(mode);
             UpdateSensorSettingsState();
-
-            // Control Apply button
-            CheckCanApply();
         }
 
         private void ValidateDependentSettings(Mode mode)
@@ -259,11 +252,11 @@ namespace rsid_wrapper_csharp
                 // Frontal Face Policy -> None
                 FrontalNone.IsChecked = true;
 
-                // Distance Limit -> No Limit
-                NoDistanceLimit.IsChecked = true;
+                // Distance Limit -> No Limit (0)
+                DistanceLimitSlider.Value = 0;
 
                 // Database Strategy -> On Device
-                ServerModeNo.IsChecked = true; 
+                ServerModeNo.IsChecked = true;
 
                 // Features -> Only Rectangle
                 Feature_Rectangle.IsChecked = true;
@@ -281,9 +274,6 @@ namespace rsid_wrapper_csharp
                 UpdateRoiPanelsVisibility(1);
                 ResetRoiButton_Click(null, null);
             }
-
-            // Re-evaluate 'Apply' button state
-            CheckCanApply();
         }
 
 
@@ -301,74 +291,76 @@ namespace rsid_wrapper_csharp
         private void RadioButton_Click(object sender, RoutedEventArgs e)
         {
             UpdateDistanceSettingsVisibility();
-            CheckCanApply();
         }
 
-        private void CheckCanApply()
+        private string GetValidationError()
         {
-            if (SettingsApplyButton == null) return;
-
-            bool isValid = false;
-
+            bool operationSelected = false;
             if (Mode == Mode.Face)
             {
-                isValid = (Operation_All.IsChecked == true) ||
-                          (Operation_DetectionOnly.IsChecked == true) ||
-                          (Operation_SpoofOnly.IsChecked == true) ||
-                          (Operation_RecognitionOnly.IsChecked == true);
+                operationSelected = (Operation_All.IsChecked == true) ||
+                                    (Operation_DetectionOnly.IsChecked == true) ||
+                                    (Operation_SpoofOnly.IsChecked == true) ||
+                                    (Operation_RecognitionOnly.IsChecked == true);
             }
             else if (Mode == Mode.Person)
             {
-                isValid = (Operation_PersonOnly.IsChecked == true) ||
-                          (Operation_PoseOnly.IsChecked == true) ||
-                          (Operation_BodyPartOnly.IsChecked == true);
+                operationSelected = (Operation_PersonOnly.IsChecked == true) ||
+                                    (Operation_PoseOnly.IsChecked == true) ||
+                                    (Operation_BodyPartOnly.IsChecked == true);
             }
             else if (Mode == Mode.Other)
             {
-                isValid = (Operation_BarcodeOnly.IsChecked == true);
+                operationSelected = Operation_BarcodeOnly.IsChecked == true;
+            }
+
+            if (!operationSelected)
+            {
+                return "Please select an Operation for the chosen Mode before applying.";
             }
 
             // Frame Dumps validation
-            if (isValid)
+            if (Mode == Mode.Face)
             {
-                if (Mode == Mode.Face)
-                {
-                    // Valid: None, Face, Full
-                    if (DumpModeDebug.IsChecked == true) isValid = false;
-                    else if (DumpModeNone.IsChecked != true && DumpModeFace.IsChecked != true && DumpModeFull.IsChecked != true) isValid = false;
-                }
-                else if (Mode == Mode.Person)
-                {
-                    // Valid: None, Full, Debug
-                    if (DumpModeFace.IsChecked == true) isValid = false;
-                    else if (DumpModeNone.IsChecked != true && DumpModeFull.IsChecked != true && DumpModeDebug.IsChecked != true) isValid = false;
-                }
-                else // Other
-                {
-                    // Valid: None, Debug
-                    if (DumpModeFace.IsChecked == true || DumpModeFull.IsChecked == true) isValid = false;
-                    else if (DumpModeNone.IsChecked != true && DumpModeDebug.IsChecked != true) isValid = false;
-                }
+                // Valid: None, Face, Full
+                bool dumpValid = DumpModeDebug.IsChecked != true &&
+                                 (DumpModeNone.IsChecked == true || DumpModeFace.IsChecked == true || DumpModeFull.IsChecked == true);
+                if (!dumpValid) return "Please select a valid Frame Dump mode for Face: None, Face Only, or Full Frame.";
+            }
+            else if (Mode == Mode.Person)
+            {
+                // Valid: None, Full, Debug
+                bool dumpValid = DumpModeFace.IsChecked != true &&
+                                 (DumpModeNone.IsChecked == true || DumpModeFull.IsChecked == true || DumpModeDebug.IsChecked == true);
+                if (!dumpValid) return "Please select a valid Frame Dump mode for Person: None, Full Frame, or Debug.";
+            }
+            else // Other
+            {
+                // Valid: None, Debug
+                bool dumpValid = DumpModeFace.IsChecked != true && DumpModeFull.IsChecked != true &&
+                                 (DumpModeNone.IsChecked == true || DumpModeDebug.IsChecked == true);
+                if (!dumpValid) return "Please select a valid Frame Dump mode for Other: None or Debug.";
             }
 
-            SettingsApplyButton.IsEnabled = isValid;
+            return null;
         }
 
-        private void CheckCanApply(object sender = null, RoutedEventArgs e = null)
+        // Kept as a no-op so existing XAML Click="CheckCanApply" handlers stay valid;
+        // form validation now happens at click time via GetValidationError().
+        private void CheckCanApply(object sender, RoutedEventArgs e)
         {
-            CheckCanApply();
         }
 
         private void UpdateUiSettingsValues(DeviceConfig deviceConfig, PreviewConfig previewConfig, MainWindow.FlowMode flowMode, MainWindow.OperationMode viewerAlgoFlow)
         {
             // Determine Mode from the current operation mode
             var mode = DetermineAllowedMode(viewerAlgoFlow);
-            
+
             // Set ComboBox selection
             switch (mode)
             {
                 case Mode.Face:
-                    ModeSelector.SelectedIndex = 0; 
+                    ModeSelector.SelectedIndex = 0;
                     break;
                 case Mode.Person:
                     ModeSelector.SelectedIndex = 1;
@@ -391,9 +383,6 @@ namespace rsid_wrapper_csharp
             Operation_RecognitionOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.RecognitionOnly;
             Operation_SpoofOnly.IsChecked = viewerAlgoFlow == MainWindow.OperationMode.SpoofOnly;
 
-            // Trigger CanApply check
-            CheckCanApply();
-
             FaceSelectionPolicySingle.IsChecked = deviceConfig.faceSelectionPolicy == DeviceConfig.FaceSelectionPolicy.Single;
             FaceSelectionPolicyAll.IsChecked = deviceConfig.faceSelectionPolicy == DeviceConfig.FaceSelectionPolicy.All;
 
@@ -411,10 +400,7 @@ namespace rsid_wrapper_csharp
             StaticMode.IsChecked = deviceConfig.personMotionMode == DeviceConfig.PersonMotionMode.Static;
             WalkthroughMode.IsChecked = deviceConfig.personMotionMode == DeviceConfig.PersonMotionMode.Walkthrough;
 
-            NoDistanceLimit.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.NoLimit;
-            DistanceLimit70cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Short;
-            DistanceLimit100cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Mid;
-            DistanceLimit130cm.IsChecked = deviceConfig.distanceLimit == DeviceConfig.DistanceLimit.Long;
+            DistanceLimitSlider.Value = deviceConfig.distanceLimitCm;
 
             CameraRotation0.IsChecked = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_0_Deg;
             CameraRotation180.IsChecked = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg;
@@ -498,13 +484,13 @@ namespace rsid_wrapper_csharp
             // they are only for viewer display the right button option
             else if (Operation_PersonOnly.IsChecked.GetValueOrDefault())
             {
-                viewerAlgoFlow = MainWindow.OperationMode.PersonDetectionOnly;                
+                viewerAlgoFlow = MainWindow.OperationMode.PersonDetectionOnly;
                 deviceConfig.algoFlow = Config.algoFlow;
             }
             else if (Operation_PoseOnly.IsChecked.GetValueOrDefault())
-            {                
+            {
                 viewerAlgoFlow = MainWindow.OperationMode.PoseEstimationOnly;
-                deviceConfig.algoFlow = Config.algoFlow; 
+                deviceConfig.algoFlow = Config.algoFlow;
             }
             else if (Operation_BodyPartOnly.IsChecked.GetValueOrDefault())
             {
@@ -536,20 +522,17 @@ namespace rsid_wrapper_csharp
             // flow mode
             flowMode = ServerModeNo.IsChecked.GetValueOrDefault() ? MainWindow.FlowMode.Device : MainWindow.FlowMode.Server;
 
-            // matcher confidence level
+            // security level from confidence radio buttons
             if (ConfidenceHigh.IsChecked.GetValueOrDefault())
             {
-                deviceConfig.matcherConfidenceLevel = MatcherConfidenceLevel.High;
                 deviceConfig.securityLevel = DeviceConfig.SecurityLevel.High;
             }
             else if (ConfidenceEnhanced.IsChecked.GetValueOrDefault())
             {
-                deviceConfig.matcherConfidenceLevel = MatcherConfidenceLevel.Medium;
                 deviceConfig.securityLevel = DeviceConfig.SecurityLevel.Medium;
             }
             else if (ConfidenceStandard.IsChecked.GetValueOrDefault())
             {
-                deviceConfig.matcherConfidenceLevel = MatcherConfidenceLevel.Low;
                 deviceConfig.securityLevel = DeviceConfig.SecurityLevel.Low;
             }
 
@@ -565,8 +548,8 @@ namespace rsid_wrapper_csharp
             bool isPersonTeam = (viewerAlgoFlow == MainWindow.OperationMode.PersonDetectionOnly ||
                                  viewerAlgoFlow == MainWindow.OperationMode.PoseEstimationOnly ||
                                  viewerAlgoFlow == MainWindow.OperationMode.BodyPartDetectionOnly) ||
-                                 (Operation_PersonOnly.IsChecked.GetValueOrDefault() || 
-                                  Operation_PoseOnly.IsChecked.GetValueOrDefault() || 
+                                 (Operation_PersonOnly.IsChecked.GetValueOrDefault() ||
+                                  Operation_PoseOnly.IsChecked.GetValueOrDefault() ||
                                   Operation_BodyPartOnly.IsChecked.GetValueOrDefault());
 
             if (WalkthroughMode.IsChecked.GetValueOrDefault() || isPersonTeam)
@@ -574,20 +557,15 @@ namespace rsid_wrapper_csharp
             else // default is static
                 deviceConfig.personMotionMode = DeviceConfig.PersonMotionMode.Static;
 
-            // distance limit
+            // distance limit (cm)
             if (DistanceSettingsVisibility != Visibility.Visible)
             {
-                // Force to No Limit if hidden
-                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.NoLimit;
+                deviceConfig.distanceLimitCm = 0;
             }
-            else if (DistanceLimit70cm.IsChecked.GetValueOrDefault())
-                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Short;
-            else if (DistanceLimit100cm.IsChecked.GetValueOrDefault())
-                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Mid;
-            else if (DistanceLimit130cm.IsChecked.GetValueOrDefault())
-                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.Long;
             else
-                deviceConfig.distanceLimit = DeviceConfig.DistanceLimit.NoLimit;
+            {
+                deviceConfig.distanceLimitCm = (byte)Math.Round(DistanceLimitSlider.Value);
+            }
 
             previewConfig.portraitMode = deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_0_Deg || deviceConfig.cameraRotation == DeviceConfig.CameraRotation.Rotation_180_Deg;
 
@@ -769,7 +747,6 @@ namespace rsid_wrapper_csharp
         private void ResetRoiButton_Click(object sender, RoutedEventArgs e)
         {
             SetRoiTextBoxes(0, GetDefaultRoi());
-            CheckCanApply();
         }
 
         private void ResetRoi1Button_Click(object sender, RoutedEventArgs e) { SetRoiTextBoxes(1, GetDefaultRoi()); }
@@ -780,7 +757,6 @@ namespace rsid_wrapper_csharp
         private void PersonMotionMode_Click(object sender, RoutedEventArgs e)
         {
             UpdateSensorSettingsState();
-            CheckCanApply();
         }
 
         private void UpdateSensorSettingsState()
@@ -821,6 +797,13 @@ namespace rsid_wrapper_csharp
 
         private void SettingsApplyButton_Click(object sender, RoutedEventArgs e)
         {
+            string validationError = GetValidationError();
+            if (validationError != null)
+            {
+                ErrorDialog.Show("Invalid Settings", validationError);
+                return;
+            }
+
             QueryUiSettingsValues(out DeviceConfig config, out PreviewConfig previewConfig, out MainWindow.FlowMode flowMode, out MainWindow.OperationMode operationMode);
             Config = config;
             FlowMode = flowMode;
@@ -860,25 +843,15 @@ namespace rsid_wrapper_csharp
             CheckUpdatesBar.Visibility = Visibility.Collapsed;
         }
 
-        private static ulong EncodeSwVersion(string versionStr)
+        private static string GetJsonStr(Dictionary<string, object> dict, string key)
         {
-            var parts = versionStr.Split('.');
-            if (parts.Length < 3) return 0;
-            if (int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor) && int.TryParse(parts[2], out int patch))
-                return (ulong)(major * 10000 + minor * 100 + patch);
-            return 0;
+            return dict.TryGetValue(key, out var value) ? value?.ToString() ?? "" : "";
         }
 
-        private static ulong EncodeFwVersion(string versionStr)
-        {
-            var parts = versionStr.Split('.');
-            if (parts.Length < 4) return 0;
-            if (int.TryParse(parts[0], out int major) && int.TryParse(parts[1], out int minor) &&
-                int.TryParse(parts[2], out int revision) && int.TryParse(parts[3], out int build))
-                return (ulong)major * 100000000 + (ulong)minor * 1000000 + (ulong)revision * 10000 + (ulong)build;
-            return 0;
-        }
-
+        // - Inform user if update available (newer version exist in published release_info.json)
+        // - Fetch published release_info.json
+        // - Detect fw version of the connected device
+        // - Parse version strings via System.Version and compare component-wise
         private async void CheckForUpdates_Click(object sender, RoutedEventArgs e)
         {
             OnUpdateCheckStart();
@@ -888,33 +861,47 @@ namespace rsid_wrapper_csharp
                 var js = new JavaScriptSerializer();
                 var dict = js.Deserialize<Dictionary<string, object>>(json);
 
+                var hostVerStr = GetJsonStr(dict, "host_ver");
+                var fw45xStr = GetJsonStr(dict, "fw_45x");
+                var fw50xStr = GetJsonStr(dict, "fw_50x");
+
+                var deviceType = MyMainWindow.GetDeviceType();
+                string remoteFwStr;
+                if (deviceType == DeviceType.F45x)
+                    remoteFwStr = fw45xStr;
+                else if (deviceType == DeviceType.F50x)
+                    remoteFwStr = fw50xStr;
+                else
+                    remoteFwStr = "";
+
+                var remoteFwKnown = remoteFwStr.Length > 0;
+
                 var remoteInfo = new ReleaseInfo
                 {
-                    sw_version = Convert.ToUInt64(dict["sw_version"]),
-                    fw_version = Convert.ToUInt64(dict["fw_version"]),
-                    sw_version_str = dict["sw_version_str"]?.ToString() ?? "",
-                    fw_version_str = dict["fw_version_str"]?.ToString() ?? "",
-                    release_url = dict["release_url"]?.ToString() ?? "",
-                    release_notes_url = dict["release_notes_url"]?.ToString() ?? "",
+                    host_ver = hostVerStr,
+                    fw_ver = remoteFwStr,
+                    release_url = GetJsonStr(dict, "release_url"),
+                    release_notes_url = GetJsonStr(dict, "release_notes_url"),
+                    fw_known = remoteFwKnown,
                 };
 
-                var swVersionStr = Authenticator.Version();
-                var fwVersionStr = FirmwareVersionNumber.Text ?? "";
+                var localHostStr = Authenticator.Version();
+                var localFwStr = FirmwareVersionNumber.Text ?? "";
+                var localFwKnown = localFwStr.Length > 0;
 
                 var localInfo = new ReleaseInfo
                 {
-                    sw_version = EncodeSwVersion(swVersionStr),
-                    fw_version = EncodeFwVersion(fwVersionStr),
-                    sw_version_str = swVersionStr,
-                    fw_version_str = fwVersionStr,
+                    host_ver = localHostStr,
+                    fw_ver = localFwStr,
+                    fw_known = localFwKnown,
                 };
 
                 OnUpdateCheckEnd();
 
                 MyMainWindow.ShowLog("Remote release info:");
-                MyMainWindow.ShowLog($" * host={remoteInfo.sw_version_str}  fw={remoteInfo.fw_version_str}");
+                MyMainWindow.ShowLog($" * host={hostVerStr}  fw_45x={fw45xStr}  fw_50x={fw50xStr}");
                 MyMainWindow.ShowLog("Local release info:");
-                MyMainWindow.ShowLog($" * host={localInfo.sw_version_str}  fw={localInfo.fw_version_str}");
+                MyMainWindow.ShowLog($" * host={localInfo.host_ver}  fw={(localFwKnown ? localInfo.fw_ver : "(no device)")}");
 
                 new UpdateAvailableDialog(localInfo, remoteInfo).ShowDialog();
             }

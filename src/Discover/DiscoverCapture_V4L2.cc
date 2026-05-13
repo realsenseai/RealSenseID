@@ -135,10 +135,7 @@ std::vector<CaptureDeviceEntry> DiscoverCaptureEntries()
 
         // Step 3: filter out metadata-only nodes
         if (!IsVideoCaptureDevice(video_index))
-        {
-            LOG_DEBUG(LOG_TAG, "Skipping /dev/video%d (not a capture device)", video_index);
             continue;
-        }
 
         // Step 4: resolve sysfs symlink to real device path
         std::string full_path = v4l_base + name;
@@ -158,7 +155,6 @@ std::vector<CaptureDeviceEntry> DiscoverCaptureEntries()
 
         // Step 7: record the mapping
         entries.push_back({video_index, bus, addr});
-        LOG_DEBUG(LOG_TAG, "V4L2 capture device /dev/video%d -> bus=%u addr=%u", video_index, bus, addr);
     }
     closedir(dir);
     return entries;

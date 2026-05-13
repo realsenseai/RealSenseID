@@ -37,7 +37,7 @@ struct AuthConfigPayload
     uint8_t landmarks_enable;
     static constexpr uint8_t MAX_ROIS = 5; // must match DeviceConfig::MAX_ROIS
     RoiEntry detection_rois[MAX_ROIS];
-    uint8_t distance_limit; /* AuthConfigCore::DistanceLimit */
+    uint8_t distance_limit_cm; /* 0 = no limit, 1-150 = cm */
     uint8_t distance_enabled;
     uint8_t num_rois;
 };

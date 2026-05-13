@@ -265,7 +265,7 @@ ModuleVector ParseUfifToModules(const std::string& path, const uint32_t block_si
             }
             else
             {
-                // module_file_name = module_name.module_version.<extension> : Example: RECOG.2.5.24.0.sbin
+                // module_file_name = module_name.module_version.<extension> : Example: FEATURES.2.5.24.0.sbin
                 module_file_name = module_name + '.' + module_version + '.' + match[4].str();
             }
             assert(!module_version.empty());

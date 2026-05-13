@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import timber.log.Timber;
 
 public class CompatibilityChecker {
@@ -29,10 +30,22 @@ public class CompatibilityChecker {
   private final Handler uiHandler;
   private final ExecutorService executor;
   private final AtomicBoolean isDestroyed = new AtomicBoolean(false);
+  @Nullable
+  private final Consumer<String> rawFirmwareSink;
   private Future<?> currentTask;
 
   public CompatibilityChecker(@NonNull Context context) {
+    this(context, null);
+  }
+
+  /**
+   * @param rawFirmwareSink Optional sink invoked with the raw firmware version string after a
+   *                        successful query, before parsing. Lets callers cache the result so a
+   *                        subsequent display (e.g. firmware screen) doesn't need a second query.
+   */
+  public CompatibilityChecker(@NonNull Context context, @Nullable Consumer<String> rawFirmwareSink) {
     this.uiHandler = new Handler(context.getMainLooper());
+    this.rawFirmwareSink = rawFirmwareSink;
     this.executor = Executors.newSingleThreadExecutor(r -> {
       Thread thread = new Thread(r, "CompatibilityChecker");
       thread.setDaemon(true);
@@ -90,6 +103,9 @@ public class CompatibilityChecker {
     }
   }
 
+  private static final int MAX_VERSION_QUERY_ATTEMPTS = 3;
+  private static final long VERSION_QUERY_RETRY_DELAY_MS = 500;
+
   private void performCompatibilityCheck(@NonNull CompatibilityCallback callback) {
     if (Thread.currentThread().isInterrupted()) {
       return;
@@ -99,16 +115,48 @@ public class CompatibilityChecker {
 
     DeviceController controller = null;
     try {
+      // Bounded retry — the old unbounded while-loop combined with closeConnection() on the
+      // SDKWrapper singleton would slam the global connection open/closed against any concurrent
+      // device caller, and on flaky post-reboot devices it never converged.
       String firmwareVersion = UNKNOWN_VERSION;
-      while (UNKNOWN_VERSION.equals(firmwareVersion)) {
-        controller = SDKWrapper.INSTANCE.getDeviceController();
-        if (isNull(controller)) {
-          Timber.w("Device controller is null");
-          runOnUiThread(() -> callback.onError("Device not connected"));
+      for (int attempt = 0; attempt < MAX_VERSION_QUERY_ATTEMPTS; attempt++) {
+        if (Thread.currentThread().isInterrupted()) {
           return;
         }
-        firmwareVersion = queryFirmwareVersion(controller);
-        SDKWrapper.INSTANCE.closeConnection();
+        if (controller != null) {
+          try {
+            controller.Disconnect();
+            controller.delete();
+          }
+          catch (Exception e) {
+            Timber.w(e, "Error releasing controller between retries");
+          }
+          controller = null;
+        }
+        controller = SDKWrapper.INSTANCE.getDeviceController();
+        if (isNull(controller)) {
+          Timber.w("Device controller is null (attempt %d/%d)", attempt + 1, MAX_VERSION_QUERY_ATTEMPTS);
+        }
+        else {
+          firmwareVersion = queryFirmwareVersion(controller);
+          if (!UNKNOWN_VERSION.equals(firmwareVersion)) {
+            break;
+          }
+        }
+        if (attempt < MAX_VERSION_QUERY_ATTEMPTS - 1) {
+          try {
+            Thread.sleep(VERSION_QUERY_RETRY_DELAY_MS);
+          }
+          catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+        }
+      }
+      if (UNKNOWN_VERSION.equals(firmwareVersion)) {
+        Timber.w("Firmware version unknown after %d attempts", MAX_VERSION_QUERY_ATTEMPTS);
+        runOnUiThread(() -> callback.onError("Unable to determine firmware version"));
+        return;
       }
       if (Thread.currentThread().isInterrupted()) {
         return;
@@ -159,6 +207,15 @@ public class CompatibilityChecker {
     if (isNull(firmwareString) || firmwareString.trim().isEmpty()) {
       Timber.w("Received empty firmware version string");
       return UNKNOWN_VERSION;
+    }
+
+    if (rawFirmwareSink != null) {
+      try {
+        rawFirmwareSink.accept(firmwareString);
+      }
+      catch (Exception e) {
+        Timber.w(e, "rawFirmwareSink threw");
+      }
     }
 
     return parseFirmwareVersion(firmwareString);

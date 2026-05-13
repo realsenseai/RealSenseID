@@ -63,20 +63,6 @@ struct RSID_API DeviceConfig
     };
 
     /**
-     * @brief Defines three confidence levels used by the Matcher during authentication.
-     *
-     * Each confidence level corresponds to a different set of thresholds, providing the user with the flexibility to
-     * choose between three different False Positive Rates (FPR): Low, Medium, and High. Currently, all sets use the
-     * thresholds associated with the "Low" confidence level by default.
-     */
-    enum class MatcherConfidenceLevel
-    {
-        High = 0,
-        Medium = 1,
-        Low = 2 // default
-    };
-
-    /**
      * @brief Defines the policy for frontal face orientation.
      *
      * - None: No restriction on face angle (default).
@@ -120,27 +106,20 @@ struct RSID_API DeviceConfig
         unsigned short height = 1920;
     };
 
-    /**
-     * @enum DistanceLimit
-     * @brief Controls the maximum distance for face authentication.
-     */
-    enum class DistanceLimit
-    {
-        NoLimit = 0, // default, no distance limit
-        Short = 1,   // 70cm
-        Mid = 2,     // 100cm
-        Long = 3     // 130cm
-    };
-
     CameraRotation camera_rotation = CameraRotation::Rotation_0_Deg;
     SecurityLevel security_level = SecurityLevel::Low;
-    AlgoFlow algo_flow = AlgoFlow::FaceDetectionOnly;
+    AlgoFlow algo_flow = AlgoFlow::All;
     FaceSelectionPolicy face_selection_policy = FaceSelectionPolicy::Single;
     DumpMode dump_mode = DumpMode::None;
-    MatcherConfidenceLevel matcher_confidence_level = MatcherConfidenceLevel::Low;
     FrontalFacePolicy frontal_face_policy = FrontalFacePolicy::None;
     PersonMotionMode person_motion_mode = PersonMotionMode::Static;
-    DistanceLimit distance_limit = DistanceLimit::NoLimit;
+
+    /**
+     * @brief Maximum distance (in centimeters) for face authentication.
+     *
+     * Set to 0 to disable the distance limit (default). Valid range: 0-150 cm.
+     */
+    unsigned char distance_limit_cm = 0;
 
     /**
      * @brief Specifies the maximum number of consecutive spoofing attempts allowed before the device rejects further
@@ -218,9 +197,7 @@ RSID_API const char* Description(DeviceConfig::SecurityLevel level);
 RSID_API const char* Description(DeviceConfig::AlgoFlow algoMode);
 RSID_API const char* Description(DeviceConfig::FaceSelectionPolicy policy);
 RSID_API const char* Description(DeviceConfig::DumpMode dump_mode);
-RSID_API const char* Description(DeviceConfig::MatcherConfidenceLevel matcher_confidence_level);
 RSID_API const char* Description(DeviceConfig::FrontalFacePolicy policy);
-RSID_API const char* Description(DeviceConfig::DistanceLimit limit);
 
 template <typename OStream>
 inline OStream& operator<<(OStream& os, const DeviceConfig::CameraRotation& rotation)
@@ -257,22 +234,9 @@ inline OStream& operator<<(OStream& os, const DeviceConfig::DumpMode& dump_mode)
     return os;
 }
 template <typename OStream>
-inline OStream& operator<<(OStream& os, const DeviceConfig::MatcherConfidenceLevel& matcher_confidence_level)
-{
-    os << Description(matcher_confidence_level);
-    return os;
-}
-template <typename OStream>
 inline OStream& operator<<(OStream& os, const DeviceConfig::FrontalFacePolicy& policy)
 {
     os << Description(policy);
-    return os;
-}
-
-template <typename OStream>
-inline OStream& operator<<(OStream& os, const DeviceConfig::DistanceLimit& limit)
-{
-    os << Description(limit);
     return os;
 }
 

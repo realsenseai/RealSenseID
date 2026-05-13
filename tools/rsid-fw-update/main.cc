@@ -373,66 +373,73 @@ int main(int argc, char* argv[])
         RealSenseID::FwUpdater::FwCompatibilityInfo compatInfo;
         fw_updater.CheckCompatibility(settings, bin_path, compatInfo);
 
-        if (!compatInfo.IsOtpSkuCompatible())
+        if (!args.force_version)
         {
-            if (compatInfo.deviceOtpSku < 0)
-                std::cerr << "Failed to determine OTP encryption SKU. Check device connection and try again.\n";
-            else
-                std::cerr << "Firmware mismatch.\nReplace firmware binary to SKU" << compatInfo.deviceOtpSku << "\n";
-            return EXIT_FAILURE;
-        }
-
-        if (!compatInfo.IsSecureBootCompatible())
-        {
-            if (compatInfo.deviceSecureBoot < 0)
-                std::cerr << "Failed to determine secure boot variant. Check device connection and try again.\n";
-            else
-                std::cerr << "Firmware mismatch.\nReplace firmware binary to " << (compatInfo.deviceSecureBoot ? "SIGNED" : "NON SIGNED")
-                          << "\n";
-            return EXIT_FAILURE;
-        }
-
-        if (!compatInfo.IsDeviceTypeCompatible())
-        {
-            auto deviceTypeName = [](int t) -> const char* {
-                if (t == 0)
-                    return "F45x";
-                if (t == 1)
-                    return "F46x";
-                if (t == 2)
-                    return "F50x";
-                return "Unknown";
-            };
-            std::cerr << "Firmware device type mismatch: connected device (" << deviceTypeName(compatInfo.connectedDeviceType)
-                      << ") does not match the selected firmware (" << deviceTypeName(compatInfo.expectedDeviceType) << ").\n";
-            std::cerr << "Please use a firmware file that matches your device type.\n";
-            return EXIT_FAILURE;
-        }
-
-        if (compatInfo.deviceDbVer >= 0 && compatInfo.expectedDbVer >= 0 && compatInfo.deviceDbVer != compatInfo.expectedDbVer)
-        {
-            std::cerr << "Warning: DB version mismatch (device: v" << compatInfo.deviceDbVer << ", firmware: v" << compatInfo.expectedDbVer
-                      << ").\n";
-            std::cerr << "The device database may be erased after the update. Export it first if needed.\n\n";
-
-            if (!args.auto_approve)
+            if (!compatInfo.IsOtpSkuCompatible())
             {
-                std::string line;
-                while (true)
-                {
-                    std::cout << "Proceed with update anyway? (y/n)\n > ";
-                    if (!std::getline(std::cin, line))
-                        return EXIT_FAILURE;
-                    if (line.empty())
-                        continue;
-                    char key = static_cast<char>(std::tolower(line[0]));
-                    if (key == 'y')
-                        break;
-                    if (key == 'n')
-                        return EXIT_FAILURE;
-                }
-                std::cout << "\n";
+                if (compatInfo.deviceOtpSku < 0)
+                    std::cerr << "Failed to determine OTP encryption SKU. Check device connection and try again.\n";
+                else
+                    std::cerr << "Firmware mismatch.\nReplace firmware binary to SKU" << compatInfo.deviceOtpSku << "\n";
+                return EXIT_FAILURE;
             }
+
+            if (!compatInfo.IsSecureBootCompatible())
+            {
+                if (compatInfo.deviceSecureBoot < 0)
+                    std::cerr << "Failed to determine secure boot variant. Check device connection and try again.\n";
+                else
+                    std::cerr << "Firmware mismatch.\nReplace firmware binary to "
+                              << (compatInfo.deviceSecureBoot ? "SIGNED" : "NON SIGNED") << "\n";
+                return EXIT_FAILURE;
+            }
+
+            if (!compatInfo.IsDeviceTypeCompatible())
+            {
+                auto deviceTypeName = [](int t) -> const char* {
+                    if (t == 0)
+                        return "F45x";
+                    if (t == 1)
+                        return "F46x";
+                    if (t == 2)
+                        return "F50x";
+                    return "Unknown";
+                };
+                std::cerr << "Firmware device type mismatch: connected device (" << deviceTypeName(compatInfo.connectedDeviceType)
+                          << ") does not match the selected firmware (" << deviceTypeName(compatInfo.expectedDeviceType) << ").\n";
+                std::cerr << "Please use a firmware file that matches your device type.\n";
+                return EXIT_FAILURE;
+            }
+
+            if (compatInfo.deviceDbVer >= 0 && compatInfo.expectedDbVer >= 0 && compatInfo.deviceDbVer != compatInfo.expectedDbVer)
+            {
+                std::cerr << "Warning: DB version mismatch (device: v" << compatInfo.deviceDbVer << ", firmware: v"
+                          << compatInfo.expectedDbVer << ").\n";
+                std::cerr << "The device database may be erased after the update. Export it first if needed.\n\n";
+
+                if (!args.auto_approve)
+                {
+                    std::string line;
+                    while (true)
+                    {
+                        std::cout << "Proceed with update anyway? (y/n)\n > ";
+                        if (!std::getline(std::cin, line))
+                            return EXIT_FAILURE;
+                        if (line.empty())
+                            continue;
+                        char key = static_cast<char>(std::tolower(line[0]));
+                        if (key == 'y')
+                            break;
+                        if (key == 'n')
+                            return EXIT_FAILURE;
+                    }
+                    std::cout << "\n";
+                }
+            }
+        }
+        else
+        {
+            std::cout << "Force version flag enabled - skipping compatibility checks.\n";
         }
 
         // check compatibility with host

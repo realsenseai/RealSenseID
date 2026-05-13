@@ -60,8 +60,8 @@ int main()
         for (size_t i = 0; i < bodyParts.size(); i++)
         {
             const auto& bp = bodyParts[i];
-            printf("  [%zu] %-7s  id=%u  %u,%u  %ux%u  distance=%u\n", i, bodyPartName(bp.body_part), bp.id, bp.x, bp.y, bp.w, bp.h,
-                   bp.distance);
+            printf("  [%zu] %-7s  id=%u  %u,%u  %ux%u  distance=%u  score=%.3f\n", i, bodyPartName(bp.body_part), bp.id, bp.x, bp.y, bp.w,
+                   bp.h, bp.distance, bp.score);
         }
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
         if (elapsed >= DURATION_SECONDS)

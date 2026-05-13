@@ -41,7 +41,6 @@ extern "C"
         rsid_algo_mode_type algo_mode;
         rsid_face_selection_policy face_selection_policy;
         rsid_dump_mode dump_mode;
-        rsid_matcher_confidence_level_type matcher_confidence_level;
         unsigned char max_spoofs;
         int gpio_auth_toggling;
         rsid_frontal_face_policy_type frontal_face_policy;
@@ -53,7 +52,7 @@ extern "C"
         unsigned char landmarks_enable;
         rsid_detection_roi rois[RSID_MAX_ROIS];
         unsigned char num_rois;
-        rsid_distance_limit_type distance_limit;
+        unsigned char distance_limit_cm; /* 0 = no limit, 1-150 = cm */
         unsigned char distance_enabled;
     } rsid_device_config;
 
@@ -92,6 +91,7 @@ extern "C"
         uint32_t id;
         uint32_t distance;
         rsid_body_part_type body_part;
+        float score;
     } rsid_person_rect;
 
     typedef struct
@@ -243,7 +243,6 @@ typedef struct ExtractedFaceprintsElement rsid_extracted_faceprints_t;
         rsid_faceprints_match_element_t new_faceprints;
         rsid_faceprints_t existing_faceprints;
         rsid_faceprints_t updated_faceprints;
-        rsid_matcher_confidence_level_type matcher_confidence_level;
     } rsid_match_args;
 
     /* log callback */
@@ -297,12 +296,18 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(); // create F50x 
     RSID_C_API rsid_status rsid_enroll(rsid_authenticator* authenticator, const rsid_enroll_args* args);
 
     /* enroll a user with image
-     * Note: The face should occupy at least 20% of image area
+     * Note:
+     *   - The image must contain exactly one face.
+     *   - The enrolled face width and height must each be at least 144 pixels.
      */
     RSID_C_API rsid_enroll_status rsid_enroll_image(rsid_authenticator* authenticator, const char* user_id, const unsigned char* buffer,
                                                     unsigned width, unsigned height);
 
-    /* enroll a user with image and return the faceprints*/
+    /* enroll a user with image and return the faceprints
+     * Note:
+     *   - The image must contain exactly one face.
+     *   - The enrolled face width and height must each be at least 144 pixels.
+     */
     RSID_C_API rsid_enroll_status rsid_extract_faceprints_from_image(rsid_authenticator* authenticator, const char* user_id,
                                                                      const unsigned char* buffer, unsigned width, unsigned height,
                                                                      rsid_faceprints_t* c_faceprints);
@@ -409,7 +414,6 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(); // create F50x 
     /* Unlock previously locked device due to too many spoof attempts*/
     RSID_C_API rsid_status rsid_unlock(rsid_authenticator* authenticator);
 
-#ifdef RSID_ONE2ONE
     // OneToOne enroll image (see FaceAuthenticator.h for details)
     RSID_C_API rsid_enroll_status rsid_enroll_image_one_to_one(rsid_authenticator* authenticator, const char* user_id,
                                                                const unsigned char* buffer, unsigned width, unsigned height);
@@ -421,14 +425,10 @@ RSID_C_API rsid_authenticator* rsid_create_authenticator_F50x(); // create F50x 
     RSID_C_API rsid_auth_status rsid_authenticate_image_one_to_one(rsid_authenticator* authenticator, const unsigned char* buffer,
                                                                    unsigned width, unsigned height, char* user_id, short* score);
 
-    // ExtractImageFaceprints from image (see FaceAuthenticator.h for details)
-    RSID_C_API rsid_status rsid_extract_faceprints_on_host(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width,
-                                                           unsigned height, rsid_extracted_faceprints_t* c_faceprints);
-
     // Find face in image (see FaceAuthenticator.h for details)
+    // expand_roi: when non-zero, expand the returned rectangle by 40% on each side (clamped to image bounds).
     RSID_C_API rsid_status rsid_detect_face(rsid_authenticator* authenticator, const unsigned char* buffer, unsigned width, unsigned height,
-                                            rsid_face_rect* face_rect);
-#endif // RSID_SECURE
+                                            rsid_face_rect* face_rect, int expand_roi);
 
     /*
      * device controller functions

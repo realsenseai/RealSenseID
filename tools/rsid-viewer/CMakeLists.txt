@@ -79,10 +79,6 @@ if(RSID_PREVIEW)
     add_definitions(-DRSID_PREVIEW)
 endif()
 
-if(RSID_ONE2ONE)
-    add_definitions(-DRSID_ONE2ONE)
-endif()
-
 # designer files
 csharp_set_designer_cs_properties(
     "${ASSEMBLY_INFO_FILE}"

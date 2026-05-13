@@ -25,7 +25,6 @@ import com.realsenseai.rsid.api.Faceprints;
 import com.realsenseai.rsid.api.MatchElement;
 import com.realsenseai.rsid.api.MatchResultHost;
 import com.realsenseai.rsid.api.PersonRect;
-import com.realsenseai.rsid.api.ThresholdsConfidenceEnum;
 import com.realsenseai.rsid.sample.callbacks.AuthenticationCallback;
 import com.realsenseai.rsid.sample.db.AppDatabase;
 import com.realsenseai.rsid.sample.db.User;
@@ -99,16 +98,17 @@ public class HostAuthenticationHelper extends AuthFaceprintsExtractionCallback {
   }
 
   @Override
-  public void OnResult(AuthenticateStatus status,
-                       ExtractedFaceprints faceprints) {
+  public void OnResult(AuthenticateStatus status, ExtractedFaceprints faceprints) {
     Timber.d("Auth: OnResult");
     Timber.i("Auth complete! Status: %s", status);
+
+    authenticator.Cancel();
+    authenticator.Disconnect();
 
     // Prevent processing multiple results - ignore subsequent Error results
     // after a valid result
     if (resultProcessed) {
-      Timber.d("HostAuthenticationHelper: Ignoring duplicate result: %s",
-               status.toString());
+      Timber.d("HostAuthenticationHelper: Ignoring duplicate result: %s", status.toString());
       return;
     }
 
@@ -144,8 +144,7 @@ public class HostAuthenticationHelper extends AuthFaceprintsExtractionCallback {
           // state in the DB.
 
           var matchResultHost = authenticator.MatchFaceprints(
-            matchElement, dbFaceprints, updated,
-            ThresholdsConfidenceEnum.ThresholdsConfidenceLevel_Medium);
+            matchElement, dbFaceprints, updated);
 
           if (matchResultHost.getSuccess()) {
             if (matchResultHost.getScore() > maxScore.get()) {
@@ -165,10 +164,8 @@ public class HostAuthenticationHelper extends AuthFaceprintsExtractionCallback {
             winnerUser.setFlags(element.getFlags());
             winnerUser.setVersion(element.getVersion());
             winnerUser.setFeaturesType(element.getFeaturesType());
-            winnerUser.setEnrollmentDescriptor(
-              element.getEnrollmentDescriptor());
-            winnerUser.setAdaptiveDescriptorWithoutMask(
-              element.getAdaptiveDescriptorWithoutMask());
+            winnerUser.setEnrollmentDescriptor(element.getEnrollmentDescriptor());
+            winnerUser.setAdaptiveDescriptorWithoutMask(element.getAdaptiveDescriptorWithoutMask());
             AppDatabase.getInstance(context).userDao().updateUser(winnerUser);
           }
           Timber.i("Found user: %s", requireNonNull(winnerUser).name);
@@ -243,6 +240,7 @@ public class HostAuthenticationHelper extends AuthFaceprintsExtractionCallback {
     }
     else {
       // This ensures clean auth
+      authenticator.Cancel();
       authenticator.Disconnect();
       authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
     }

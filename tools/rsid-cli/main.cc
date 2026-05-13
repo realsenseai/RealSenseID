@@ -373,6 +373,24 @@ int rotation_to_degrees(RealSenseID::DeviceConfig::CameraRotation rot)
     }
 }
 
+// Full-frame ROI for the given rotation: 1080x1920 at 0/180 deg, 1920x1080 at 90/270 deg.
+RealSenseID::DeviceConfig::Roi default_roi_for_rotation(RealSenseID::DeviceConfig::CameraRotation rot)
+{
+    using DC = RealSenseID::DeviceConfig;
+    bool portrait = rot == DC::CameraRotation::Rotation_0_Deg || rot == DC::CameraRotation::Rotation_180_Deg;
+    DC::Roi roi {};
+    roi.x = 0;
+    roi.y = 0;
+    roi.width = portrait ? 1080 : 1920;
+    roi.height = portrait ? 1920 : 1080;
+    return roi;
+}
+
+bool is_default_roi(const RealSenseID::DeviceConfig::Roi& roi)
+{
+    return roi.x == 0 && roi.y == 0 && ((roi.width == 1080 && roi.height == 1920) || (roi.width == 1920 && roi.height == 1080));
+}
+
 void print_config(const RealSenseID::DeviceConfig& config, bool numbered)
 {
     using DC = RealSenseID::DeviceConfig;
@@ -390,7 +408,7 @@ void print_config(const RealSenseID::DeviceConfig& config, bool numbered)
     printf(fmt_d, numbered ? "8.  Max Spoof Attempts" : "Max Spoof Attempts", static_cast<int>(config.max_spoofs));
     printf(fmt_d, numbered ? "9.  Matching Threshold" : "Matching Threshold", config.match_thresh);
     printf(fmt_d, numbered ? "10. GPIO Auth Toggling" : "GPIO Auth Toggling", config.gpio_auth_toggling);
-    printf(fmt_s, numbered ? "11. Distance Limit" : "Distance Limit", Description(config.distance_limit));
+    printf(fmt_d, numbered ? "11. Distance Limit (cm)" : "Distance Limit (cm)", static_cast<int>(config.distance_limit_cm));
     printf(fmt_d, numbered ? "12. Distance Enabled" : "Distance Enabled", static_cast<int>(config.distance_enabled));
     printf(fmt_d, numbered ? "13. Exposure Time (us)" : "Exposure Time (us)", config.manual_exposure_time_us);
     printf(fmt_d, numbered ? "14. Manual Gain" : "Manual Gain", config.manual_gain);
@@ -453,6 +471,63 @@ std::string to_lower(std::string s)
 {
     std::transform(s.begin(), s.end(), s.begin(), ::tolower);
     return s;
+}
+
+// Print a column-aligned table of discovered devices. Example output:
+//
+//   Discovered 3 device(s):
+//
+//     #  Port          Model  Serial
+//     0  /dev/ttyACM1  F50x   00.00.01
+//     1  /dev/ttyACM2  F45x   f450-devboard
+//     2  /dev/ttyACM0  F50x   F500-SN
+//
+void print_devices(const std::vector<RealSenseID::DeviceInfo>& devices)
+{
+    // Find max widths for alignment
+    size_t max_port = 4, max_serial = 6; // "Port", "Serial"
+    for (const auto& d : devices)
+    {
+        max_port = std::max(max_port, std::strlen(d.serialPort));
+        max_serial = std::max(max_serial, std::strlen(d.serialNumber));
+    }
+
+    std::cout << "\nDiscovered " << devices.size() << " device(s):\n\n";
+    std::cout << "  #  " << std::left << std::setw(max_port + 2) << "Port" << std::setw(7) << "Model" << "Serial\n";
+    for (size_t i = 0; i < devices.size(); ++i)
+    {
+        const auto& d = devices[i];
+        std::cout << "  " << i << "  " << std::left << std::setw(max_port + 2) << d.serialPort << std::setw(7)
+                  << RealSenseID::Description(d.deviceType) << d.serialNumber << std::endl;
+    }
+    std::cout << std::endl;
+}
+
+// Discover all devices, print them, prompt the user to select one if more than one, and update s_device_info.
+// Returns true if a device was found.
+bool discover_devices()
+{
+    auto devices = RealSenseID::DiscoverDevices();
+    if (devices.empty())
+    {
+        std::cout << "No devices found.\n";
+        return false;
+    }
+
+    print_devices(devices);
+
+    if (devices.size() == 1)
+    {
+        s_device_info = devices[0];
+    }
+    else
+    {
+        auto prompt = "Select device (0-" + std::to_string(devices.size() - 1) + "): ";
+        int idx = get_int_from_user(prompt.c_str(), 0, static_cast<int>(devices.size()) - 1);
+        s_device_info = devices[idx];
+        std::cout << "Selected " << s_device_info.serialPort << "\n";
+    }
+    return true;
 }
 
 // Read a string from stdin. Accepts a number (1-based index) or the option string (case-insensitive).
@@ -546,29 +621,22 @@ void device_info()
     if (!controller)
         return;
 
-    std::string firmware_version;
-    auto status = controller->QueryFirmwareVersion(firmware_version);
-    if (status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed getting firmware version!\n";
-    }
-
-    std::string serial_number;
-    status = controller->QuerySerialNumber(serial_number);
-    if (status != RealSenseID::Status::Ok)
-    {
-        std::cout << "Failed getting serial number!\n";
-    }
-
+    std::string bspver;
+    auto status = controller->QueryBspVer(bspver);
     controller->Disconnect();
+    if (status != RealSenseID::Status::Ok)
+    {
+        std::cout << "Failed getting bspver!\n";
+        return;
+    }
 
-    std::cout << "\n";
-    std::cout << "Additional information:\n";
-    std::cout << " * Device: " << s_device_info.deviceType << "\n";
-    std::cout << " * S/N: " << serial_number << "\n";
-    std::cout << " * Firmware: " << firmware_version << "\n";
-    std::cout << " * Host: " << RealSenseID::Version() << "\n";
-    std::cout << "\n";
+    // remove prompt fragments that may appear in command responses.
+    const std::string prompt = "cdc>";
+    size_t pos = 0;
+    while ((pos = bspver.find(prompt, pos)) != std::string::npos)
+        bspver.erase(pos, prompt.size());
+
+    std::cout << bspver << std::endl;
 }
 
 
@@ -632,7 +700,19 @@ void query_log()
 
     // create dumps dir if not exist and save the log in it
     std::string dumps_dir = "dumps";
-    std::string logfile = dumps_dir + "/f500.log";
+    const char* device_name = "device";
+    switch (s_device_info.deviceType)
+    {
+    case RealSenseID::DeviceType::F45x:
+        device_name = "F45x";
+        break;
+    case RealSenseID::DeviceType::F50x:
+        device_name = "F50x";
+        break;
+    default:
+        break;
+    }
+    std::string logfile = dumps_dir + "/" + device_name + ".log";
 #ifdef _WIN32
     int rv = _mkdir(dumps_dir.c_str());
 #else
@@ -731,15 +811,17 @@ void reboot_device()
         return;
 
     auto status = controller->Reboot();
+    controller->Disconnect();
     if (status != RealSenseID::Status::Ok)
     {
         std::cout << "Reboot failed!\n";
     }
 
     std::cout << "Rebooting..\n";
-    // connect again to show device info after reboot
+    // re-discover device after reboot (serial port may change after USB re-enumeration)
     std::this_thread::sleep_for(std::chrono::seconds(3));
-    device_info();
+    if (discover_devices())
+        device_info();
 }
 
 void save_debug()
@@ -870,14 +952,12 @@ public:
         RealSenseID::MatchResultHost winning_match;
         RealSenseID::Faceprints winning_updated;
 
-        auto matcher_confidence_level = RealSenseID::ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High;
-
         for (auto& [user_id, db_faceprint] : s_user_faceprint_db)
         {
             RealSenseID::Faceprints existing = db_faceprint;
             RealSenseID::Faceprints updated = existing;
 
-            auto match = _authenticator->MatchFaceprints(scanned_faceprint, existing, updated, matcher_confidence_level);
+            auto match = _authenticator->MatchFaceprints(scanned_faceprint, existing, updated);
 
             if (match.success && static_cast<int>(match.score) > best_score)
             {
@@ -962,6 +1042,7 @@ void print_menu()
     print_menu_opt("'M' Mount debug dumps");
     print_menu_opt("'o' Fetch device logs");
     print_menu_opt("'v' View device info");
+    print_menu_opt("'n' Discover devices");
     print_menu_opt("'f' Read temperature");
     print_menu_opt("'w' Set/get color gains");
     print_menu_opt("'x' Ping device");
@@ -1095,6 +1176,9 @@ void configure_device()
                 config->camera_rotation = DC::CameraRotation::Rotation_270_Deg;
             else
                 config->camera_rotation = DC::CameraRotation::Rotation_0_Deg;
+            // Keep a default single ROI full-frame across rotation; leave custom or multi-ROI alone.
+            if (config->num_rois == 1 && is_default_roi(config->detection_rois[0]))
+                config->detection_rois[0] = default_roi_for_rotation(config->camera_rotation);
             break;
         }
         case 8:
@@ -1107,7 +1191,7 @@ void configure_device()
             set_field(config->gpio_auth_toggling, "GPIO auth toggling (0/1): ", 0, 1);
             break;
         case 11:
-            set_field(config->distance_limit, "Distance limit (0:NoLimit, 1:Short, 2:Mid, 3:Long): ", 0, 3);
+            set_field(config->distance_limit_cm, "Distance limit in cm (0=no limit, 1-150): ", 0, 150);
             break;
         case 12:
             set_field(config->distance_enabled, "Distance enabled (0/1): ", 0, 1);
@@ -1253,6 +1337,9 @@ void sample_loop()
         case 'v':
             device_info();
             break;
+        case 'n':
+            discover_devices();
+            break;
         case 'x': {
             int iters = get_int_from_user("Iterations: ", 1, 999999);
             ping_device(iters);
@@ -1319,38 +1406,93 @@ void sample_loop()
     }
 }
 
-int main()
+// Parse device type string to enum. Case insensitive.
+RealSenseID::DeviceType parse_device_type(const std::string& s)
+{
+    std::string lower(s);
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower.rfind("f4", 0) == 0)
+        return RealSenseID::DeviceType::F45x;
+    if (lower.rfind("f5", 0) == 0)
+        return RealSenseID::DeviceType::F50x;
+    return RealSenseID::DeviceType::Unknown;
+}
+
+// Detect device on a specific port, skipping full discovery.
+RealSenseID::DeviceInfo detect_device(const std::string& port, RealSenseID::DeviceType device_type)
+{
+    RealSenseID::DeviceInfo info;
+    std::snprintf(info.serialPort, sizeof(info.serialPort), "%s", port.c_str());
+    if (device_type != RealSenseID::DeviceType::Unknown)
+        info.deviceType = device_type;
+    else
+        info.deviceType = RealSenseID::DiscoverDeviceType(info.serialPort);
+
+    if (info.deviceType == RealSenseID::DeviceType::Unknown)
+    {
+        std::cout << "Error: Could not detect device type on port " << port << "\n";
+        std::exit(1);
+    }
+
+    std::cout << "Using port: " << info.serialPort << "\n";
+    return info;
+}
+
+int main(int argc, char* argv[])
 {
     try
     {
-        std::cout << "Discovering devices...\n" << std::flush;
-        auto devices = RealSenseID::DiscoverDevices();
+        std::cout << R"(
+  ____            _ ____                      ___ ____
+ |  _ \ ___  __ _| / ___|  ___ _ __  ___  ___|_ _|  _ \
+ | |_) / _ \/ _` | \___ \ / _ \ '_ \/ __|/ _ \| || | | |
+ |  _ <  __/ (_| | |___) |  __/ | | \__ \  __/| || |_| |
+ |_| \_\___|\__,_|_|____/ \___|_| |_|___/\___|___|____/
+)";
+        std::cout << "  v" << RealSenseID::Version() << "\n\n";
 
-        if (devices.empty())
+        // Parse command line options
+        std::string port_arg;
+        std::string device_type_arg;
+        for (int i = 1; i < argc; ++i)
         {
-            std::cout << "Error: No rsid devices were found.\n";
+            std::string arg = argv[i];
+            if (arg == "--help" || arg == "-h")
+            {
+                std::cout << "Usage: rsid-cli [options]\n"
+                          << "Options:\n"
+                          << "  --port <port>              Serial port (e.g. COM3). Skips device discovery.\n"
+                          << "  --device-type <F45x|F50x>  Device type. Requires --port. Skips type detection.\n"
+                          << "  --help, -h                 Show this help message.\n";
+                return 0;
+            }
+            else if (arg == "--port" && i + 1 < argc)
+                port_arg = argv[++i];
+            else if (arg == "--device-type" && i + 1 < argc)
+                device_type_arg = argv[++i];
+        }
+
+        if (!device_type_arg.empty() && port_arg.empty())
+        {
+            std::cout << "Error: --device-type requires --port\n";
             std::exit(1);
         }
 
-        // Auto-select if 1 device, otherwise ask user
-        if (devices.size() == 1)
+        auto device_type = device_type_arg.empty() ? RealSenseID::DeviceType::Unknown : parse_device_type(device_type_arg);
+        if (!device_type_arg.empty() && device_type == RealSenseID::DeviceType::Unknown)
         {
-            s_device_info = devices[0];
-            std::cout << "Found 1 device. Auto-selecting:\n";
-            std::cout << " - Port: " << s_device_info.serialPort << " (S/N: " << s_device_info.serialNumber << ")\n";
+            std::cout << "Error: Unknown device type '" << device_type_arg << "'. Expected F45x/F450/F50x/F500\n";
+            std::exit(1);
+        }
+
+        if (port_arg.empty())
+        {
+            if (!discover_devices())
+                return 1;
         }
         else
         {
-            std::cout << "Found " << devices.size() << " devices:\n";
-            for (size_t i = 0; i < devices.size(); ++i)
-            {
-                std::cout << i << ". Port: " << devices[i].serialPort << " \t(S/N: " << devices[i].serialNumber << ")\n";
-            }
-
-            auto prompt = "\nSelect device index (0-" + std::to_string(devices.size() - 1) + "): ";
-            int selection = get_int_from_user(prompt.c_str(), 0, static_cast<int>(devices.size()) - 1);
-            s_device_info = devices[selection];
-            std::cout << "Selected: " << s_device_info.serialPort << "\n";
+            s_device_info = detect_device(port_arg, device_type);
         }
 
         // Start main loop

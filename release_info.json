@@ -1,8 +1,7 @@
 {
-  "sw_version": 30302,
-  "sw_version_str": "3.3.2",
-  "fw_version": 9011020005,
-  "fw_version_str": "9.11.2.5",
-  "release_url": "https://github.com/realsenseai/RealSenseID/releases/tag/v3.3.2",
-  "release_notes_url": "https://github.com/realsenseai/RealSenseID/blob/v3.3.2/release_notes.txt"
+  "host_ver": "3.6.1",
+  "fw_45x": "9.16.1.1",
+  "fw_50x": "2.16.1.1",
+  "release_url": "https://github.com/realsenseai/RealSenseID/releases/tag/v3.6.1",
+  "release_notes_url": "https://github.com/realsenseai/RealSenseID/blob/v3.6.1/release_notes.txt"
 }

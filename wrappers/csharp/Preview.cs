@@ -92,6 +92,7 @@ namespace rsid
         public UInt32 id;
         public UInt32 distance;
         public BodyPart bodyPart;
+        public float score;
     };
 
     [StructLayout(LayoutKind.Sequential, Pack = 0)]

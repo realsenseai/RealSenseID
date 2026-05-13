@@ -61,9 +61,12 @@
   <string name="flash">Flash (network) - WARNING: NOT COMPATIBLE</string>
   <string name="flash_file">Flash (pick file) - not recommended</string>
   <string name="enroll_image">Enroll Image</string>
+  <string name="enroll_cropped_image">Enroll Photo ID</string>
+  <string name="button_authenticate_cropped_image">Auth Last ID</string>
   <string name="fetch_device_logs">Fetch Device Logs</string>
   <string name="log_management">Log Management</string>
   <string name="rotate_clockwise">↻</string>
+  <string name="one_to_one">1:1</string>
   <string name="face_selection_single">Single</string>
   <string name="face_selection_multi">Multi</string>
   <string name="face_selection_text">Face Selection</string>

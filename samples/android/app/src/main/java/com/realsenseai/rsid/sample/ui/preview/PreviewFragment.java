@@ -3,6 +3,7 @@
 
 package com.realsenseai.rsid.sample.ui.preview;
 
+import static androidx.core.util.ObjectsCompat.requireNonNull;
 import static java.util.Objects.nonNull;
 
 import android.animation.Animator;
@@ -26,15 +27,15 @@ import com.google.android.material.button.MaterialButton;
 import com.realsenseai.rsid.api.DeviceConfig;
 import com.realsenseai.rsid.api.DeviceType;
 import com.realsenseai.rsid.api.FaceAuthenticator;
-import com.realsenseai.rsid.api.PersonRect;
 import com.realsenseai.rsid.sample.MainActivity;
 import com.realsenseai.rsid.sample.R;
 import com.realsenseai.rsid.sample.callbacks.AuthenticationCallback;
 import com.realsenseai.rsid.sample.callbacks.EnrollmentCallback;
 import com.realsenseai.rsid.sample.databinding.ActivityMainBinding;
 import com.realsenseai.rsid.sample.databinding.FragmentPreviewBinding;
-import com.realsenseai.rsid.sample.ui.dialog.UIDialogHelper;
+import com.realsenseai.rsid.sample.ui.firmware.FirmwareViewModel;
 import com.realsenseai.rsid.sample.ui.shared.RealSenseIdSharedViewModel;
+import com.realsenseai.rsid.sample.ui.users.UserListViewModel;
 import com.realsenseai.rsid.sample.util.CompatibilityChecker;
 import com.realsenseai.rsid.sample.util.FileDownloader;
 import com.realsenseai.rsid.sample.util.SDKWrapper;
@@ -51,7 +52,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.opencv.android.Utils;
 import org.opencv.core.Mat;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import timber.log.Timber;
 
@@ -76,13 +76,20 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
   private UIFeedbackHelper uiFeedbackHelper;
 
   // Lazy-initialized helpers (volatile for thread safety)
-  private volatile PreviewViewModel previewViewModel;
+  private volatile UserListViewModel userListViewModel;
+  private volatile FirmwareViewModel firmwareViewModel;
   private volatile HostEnrollmentHelper hostEnrollmentHelper;
   private volatile DeviceEnrollmentHelper deviceEnrollmentHelper;
   private volatile HostAuthenticationHelper hostAuthHelper;
   private volatile DeviceAuthenticationHelper deviceAuthHelper;
   private volatile CompatibilityChecker compatibilityChecker;
   private volatile FaceAuthenticator authenticator;
+
+  // Held so register/unregister see the same lambda instance — `this::onDeviceAttachmentChanged`
+  // evaluated at two source sites produces two distinct functional-interface objects, so naive
+  // unregister with the method reference silently no-ops and the callback list grows on each
+  // view recreation.
+  private RealSenseIdSharedViewModel.DeviceAttachmentCallback deviceAttachmentCallback;
 
   // UI and lifecycle
   private FragmentPreviewBinding binding;
@@ -100,6 +107,8 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
 
     var sharedViewModel = new ViewModelProvider(requireActivity())
       .get(RealSenseIdSharedViewModel.class);
+    userListViewModel = new ViewModelProvider(requireActivity()).get(UserListViewModel.class);
+    firmwareViewModel = new ViewModelProvider(requireActivity()).get(FirmwareViewModel.class);
     useHostDb = sharedViewModel.getUseHostDb().getValue() != null &&
                 sharedViewModel.getUseHostDb().getValue() == true;
 
@@ -119,10 +128,45 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
     setupClickListeners();
 
     // Register callback for device attachment changes
-    sharedViewModel.registerDeviceAttachmentCallback(
-      this::onDeviceAttachmentChanged);
+    if (deviceAttachmentCallback == null) {
+      deviceAttachmentCallback = this::onDeviceAttachmentChanged;
+    }
+    sharedViewModel.registerDeviceAttachmentCallback(deviceAttachmentCallback);
+
+    // Observe one-to-one mode changes
+    sharedViewModel.getOneToOneMode().observe(getViewLifecycleOwner(), this::updateButtonVisibilityForOneToOneMode);
 
     return binding.getRoot();
+  }
+
+  private void updateButtonVisibilityForOneToOneMode(boolean oneToOneModeEnabled) {
+    if (binding == null || !isFragmentAttached()) {
+      return;
+    }
+
+    if (oneToOneModeEnabled) {
+      // Show one-to-one buttons, hide regular buttons
+      binding.buttonEnrollCroppedImage.setVisibility(View.VISIBLE);
+      binding.buttonAuthenticateCroppedImage.setVisibility(View.VISIBLE);
+
+      binding.buttonEnroll.setVisibility(View.GONE);
+      binding.buttonEnrollImage.setVisibility(View.GONE);
+      binding.buttonAuthenticate.setVisibility(View.GONE);
+    }
+    else {
+      // Hide one-to-one buttons, show regular buttons based on device mode
+      binding.buttonEnrollCroppedImage.setVisibility(View.GONE);
+      binding.buttonAuthenticateCroppedImage.setVisibility(View.GONE);
+
+      // Restore regular button visibility based on device settings
+      var sharedViewModel = new ViewModelProvider(requireActivity())
+        .get(RealSenseIdSharedViewModel.class);
+      var mode = sharedViewModel.getOperationMode().getValue();
+
+      binding.buttonEnroll.setVisibility(getEnrollButtonVisibility(mode));
+      binding.buttonEnrollImage.setVisibility(useHostDb ? View.VISIBLE : View.GONE);
+      binding.buttonAuthenticate.setVisibility(View.VISIBLE);
+    }
   }
 
   private int getEnrollButtonVisibility(DeviceConfig.AlgoFlow mode) {
@@ -188,6 +232,71 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
         Timber.d("Task cancellation result: %s", cancelled);
       }
     }, timeoutSeconds, TimeUnit.SECONDS);
+  }
+
+  private void handleImageSelection(android.net.Uri uri, @NonNull String userName) {
+    if (!isFragmentAttached()) {
+      return;
+    }
+
+    if (uri != null) {
+      Timber.d("Selected URI: %s", uri);
+      executeInBackground(() -> {
+        if (!isFragmentAttached()) {
+          return;
+        }
+
+        try {
+          var bitmap = BitmapFactory.decodeStream(requireContext().getContentResolver().openInputStream(uri));
+
+          // Force bitmap to ARGB_8888 format (OpenCV converts this to RGBA)
+          if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
+            bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
+          }
+
+          Mat matImage = new Mat();
+          Utils.bitmapToMat(requireNonNull(bitmap).copy(Bitmap.Config.ARGB_8888, false), matImage);
+          Imgproc.cvtColor(matImage, matImage, Imgproc.COLOR_RGBA2BGR);
+
+          var buffer = mat2Bytes(matImage);
+          int width = matImage.width();
+          int height = matImage.height();
+
+          // Display the original bitmap (matImage is BGR for the C++ pipeline; matToBitmap would swap R↔B)
+          Bitmap enrolledBitmap = bitmap;
+
+          requireActivity().runOnUiThread(() -> {
+            if (binding != null && isFragmentAttached()) {
+              binding.enrolledImageOverlay.setImageBitmap(enrolledBitmap);
+              binding.enrolledImageOverlay.setVisibility(View.VISIBLE);
+
+              // Display debug info
+              String debugInfo = String.format("HxW: %dx%d\nBytes: %d", height, width, buffer.length);
+              binding.imageDebugInfo.setText(debugInfo);
+              binding.imageDebugInfo.setVisibility(View.VISIBLE);
+
+              // Auto-hide after 5 seconds
+              new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (binding != null && binding.enrolledImageOverlay != null) {
+                  binding.enrolledImageOverlay.setVisibility(View.GONE);
+                  binding.enrolledImageOverlay.setImageBitmap(null);
+                  binding.imageDebugInfo.setVisibility(View.GONE);
+                }
+              }, 5000);
+            }
+          });
+
+          getDeviceEnrollmentHelper().EnrollImageOneToOne(userName, buffer, width, height, PreviewFragment.this);
+        }
+        catch (Exception e) {
+          Timber.e(e);
+          enableButtons();
+        }
+      });
+    }
+    else {
+      Timber.d("No media selected");
+    }
   }
 
   private void rotateVideoGroup() {
@@ -358,6 +467,33 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
         }
       }, 60); // Image enrollment can take long time!
     });
+
+    // Note: Visibility for cropped image buttons is managed by one-to-one mode observer
+
+    binding.buttonEnrollCroppedImage.setOnClickListener(v -> {
+      // Clear face rectangles at start of new enrollment session
+      if (uiFeedbackHelper != null) {
+        uiFeedbackHelper.clearFaceRectangles(UIFeedbackHelper.SessionType.ENROLLMENT);
+      }
+      Timber.i("Crop/Enroll Image");
+      enrollWithImage();
+    });
+
+    binding.buttonAuthenticateCroppedImage.setOnClickListener(v -> {
+      // Clear face rectangles at start of new authentication session
+      if (uiFeedbackHelper != null) {
+        uiFeedbackHelper.clearFaceRectangles(UIFeedbackHelper.SessionType.AUTHENTICATION);
+      }
+
+      executeInBackground(() -> {
+        if (isFragmentAttached()) {
+          getDeviceAuthHelper().AuthenticateOne2One(this);
+        }
+        else {
+          Timber.w("Fragment is not attached, skipping image authentication");
+        }
+      });
+    });
   }
 
   private void enrollWithCamera() {
@@ -395,6 +531,37 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
       });
   }
 
+  private void enrollWithImage() {
+    if (!isFragmentAttached()) {
+      return;
+    }
+
+    UIDialogHelper.showEnrollmentDialog(
+      requireContext(), binding.getRoot(),
+      new UIDialogHelper.EnrollmentDialogCallback() {
+        @Override
+        public void onEnrollmentConfirmed(@NonNull String userName) {
+          UIDialogHelper.showImageFileSelector(requireContext(), new UIDialogHelper.FileSelectionCallback() {
+            @Override
+            public void onFileSelected(@NonNull android.net.Uri uri) {
+              handleImageSelection(uri, userName);
+            }
+
+            @Override
+            public void onCancelled() {
+              Timber.d("Image selection cancelled");
+            }
+          });
+        }
+
+        @Override
+        public void onEnrollmentCancelled() {
+          enableButtons();
+          // Handle cancellation if needed
+        }
+      });
+  }
+
   private void enrollImageFromUrl() {
     if (!isFragmentAttached()) {
       return;
@@ -413,10 +580,8 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
           try {
             Mat image = new Mat();
             Bitmap bitmap = BitmapFactory.decodeFile(filePath);
-            Utils.bitmapToMat(bitmap.copy(Bitmap.Config.ARGB_8888, true),
-                              image);
-            Imgproc.cvtColor(image, image, Imgproc.COLOR_BGRA2BGR);
-            image = resizeMat(image);
+            Utils.bitmapToMat(bitmap.copy(Bitmap.Config.ARGB_8888, true), image);
+            Imgproc.cvtColor(image, image, Imgproc.COLOR_RGBA2BGR);
             var buffer = mat2Bytes(image);
 
             // Clear face rectangles at start of new enrollment session
@@ -449,7 +614,10 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
       return;
     }
 
-    if (getPreviewViewModel().isDeviceCompatible()) {
+    var viewModel = new ViewModelProvider(requireActivity())
+      .get(RealSenseIdSharedViewModel.class);
+
+    if (viewModel.isCurrentDeviceCompatible()) {
       Timber.d(
         "Device already verified as compatible, skipping compatibility check");
       enableButtons();
@@ -460,8 +628,6 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
       uiFeedbackHelper.showHint("Checking for compatibility!");
     }
     disableButtons();
-    var viewModel = new ViewModelProvider(requireActivity())
-      .get(RealSenseIdSharedViewModel.class);
     viewModel.setCompatibilityCheckRunning(true);
 
     executeInBackground(() -> {
@@ -470,7 +636,12 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
         return;
       }
 
-      compatibilityChecker = new CompatibilityChecker(requireContext());
+      // Write-through: capture the raw firmware string into the firmware-info cache so the
+      // firmware screen displays instantly on first landing without a redundant device query.
+      compatibilityChecker = new CompatibilityChecker(requireContext(),
+                                                      raw -> {
+                                                        if (firmwareViewModel != null) firmwareViewModel.setRawFirmwareVersion(raw);
+                                                      });
       if (authenticator != null) {
         authenticator.Disconnect();
       }
@@ -478,7 +649,7 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
         new CompatibilityChecker.CompatibilityCallback() {
           @Override
           public void onCompatible() {
-            getPreviewViewModel().setIsCompatible(true);
+            viewModel.setDeviceCompatible(true);
             viewModel.setCompatibilityCheckRunning(false);
 
             if (!isFragmentAttached()) {
@@ -497,7 +668,7 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
 
           @Override
           public void onIncompatible() {
-            getPreviewViewModel().setIsCompatible(false);
+            viewModel.setDeviceCompatible(false);
             viewModel.setCompatibilityCheckRunning(false);
 
             if (!isFragmentAttached()) {
@@ -533,17 +704,6 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
           }
         });
     });
-  }
-
-  private PreviewViewModel getPreviewViewModel() {
-    if (previewViewModel == null) {
-      synchronized (this) {
-        if (previewViewModel == null) {
-          previewViewModel = new ViewModelProvider(this).get(PreviewViewModel.class);
-        }
-      }
-    }
-    return previewViewModel;
   }
 
   DeviceEnrollmentHelper getDeviceEnrollmentHelper() {
@@ -600,25 +760,6 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
       }
     }
     return deviceAuthHelper;
-  }
-
-  private Mat resizeMat(Mat image) {
-    var channels = image.channels();
-    if (channels != 3) {
-      throw new RuntimeException("image must have 3 channels / bgr24");
-    }
-
-    var finalImage = image.clone();
-    var imageSize = image.height() * image.width() * 3;
-    if (imageSize > Constants.MAX_IMAGE_SIZE_BYTES) {
-      var scale =
-        Math.sqrt((double)Constants.MAX_IMAGE_SIZE_BYTES / (double)imageSize);
-      int newWidth = (int)(image.width() * scale);
-      int newHeight = (int)(image.height() * scale);
-      Imgproc.resize(image, finalImage, new Size(newWidth, newHeight), 0, 0,
-                     Imgproc.INTER_AREA);
-    }
-    return finalImage;
   }
 
   public byte[] mat2Bytes(Mat mat) {
@@ -696,6 +837,8 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
           binding.buttonAuthenticate.setTextColor(animatedColor);
           binding.buttonEnroll.setTextColor(animatedColor);
           binding.buttonEnrollImage.setTextColor(animatedColor);
+          binding.buttonEnrollCroppedImage.setTextColor(animatedColor);
+          binding.buttonAuthenticateCroppedImage.setTextColor(animatedColor);
         }
       });
 
@@ -706,6 +849,8 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
           binding.buttonAuthenticate.setEnabled(state);
           binding.buttonEnroll.setEnabled(state);
           binding.buttonEnrollImage.setEnabled(state);
+          binding.buttonEnrollCroppedImage.setEnabled(state);
+          binding.buttonAuthenticateCroppedImage.setEnabled(state);
         }
       });
 
@@ -726,6 +871,16 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
                                      sharedViewModel.getCurrentCameraRotation(),
                                      getScaleFactor(),
                                      score);
+    }
+
+    // Hide enrolled image overlay after successful authentication
+    if (isFragmentAttached() && binding != null) {
+      requireActivity().runOnUiThread(() -> {
+        if (binding != null && binding.enrolledImageOverlay != null) {
+          binding.enrolledImageOverlay.setVisibility(View.GONE);
+          binding.enrolledImageOverlay.setImageBitmap(null);
+        }
+      });
     }
 
     //synchronized (this) {
@@ -766,8 +921,12 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
 
   @Override
   public void onEnrollmentSuccess(String name) {
+    Timber.d("PreviewFragment.onEnrollmentSuccess(%s) on thread=%s", name, Thread.currentThread().getName());
     if (isFragmentAttached() && uiFeedbackHelper != null) {
       uiFeedbackHelper.onEnrollmentSuccess(name);
+    }
+    if (userListViewModel != null) {
+      userListViewModel.markDeviceUsersStale();
     }
     synchronized (this) {
       deviceEnrollmentHelper = null;
@@ -799,14 +958,15 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
     Timber.d("PreviewFragment onDestroyView");
 
     // Unregister device attachment callback
-    try {
-      var sharedViewModel = new ViewModelProvider(requireActivity())
-        .get(RealSenseIdSharedViewModel.class);
-      sharedViewModel.unregisterDeviceAttachmentCallback(
-        this::onDeviceAttachmentChanged);
-    }
-    catch (Exception e) {
-      Timber.w(e, "Error unregistering device attachment callback");
+    if (deviceAttachmentCallback != null) {
+      try {
+        var sharedViewModel = new ViewModelProvider(requireActivity())
+          .get(RealSenseIdSharedViewModel.class);
+        sharedViewModel.unregisterDeviceAttachmentCallback(deviceAttachmentCallback);
+      }
+      catch (Exception e) {
+        Timber.w(e, "Error unregistering device attachment callback");
+      }
     }
 
     // Cleanup UI feedback helper first
@@ -844,7 +1004,6 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
       hostEnrollmentHelper = null;
       hostAuthHelper = null;
       deviceAuthHelper = null;
-      previewViewModel = null;
     }
 
     // Clear binding
@@ -950,23 +1109,37 @@ public class PreviewFragment extends BaseRealSenseIdPreviewFragment
         if (mode != null) {
           Timber.d("DEBUG: Operation mode is %s", mode.toString());
           binding.buttonAuthenticate.setText(getAuthButtonText(mode));
-          binding.buttonEnroll.setVisibility(getEnrollButtonVisibility(mode));
-          binding.buttonAuthenticate.setVisibility(View.VISIBLE);
 
-          Timber.d("onDeviceAttachmentChanged: Updated UI - auth text: %s", getAuthButtonText(mode));
+          // Only update visibility if NOT in one-to-one mode
+          // One-to-one mode observer handles visibility when enabled
+          boolean oneToOneMode = sharedViewModel.isOneToOneModeEnabled();
+          if (!oneToOneMode) {
+            binding.buttonEnroll.setVisibility(getEnrollButtonVisibility(mode));
+            binding.buttonAuthenticate.setVisibility(View.VISIBLE);
+          }
+
+          Timber.d("onDeviceAttachmentChanged: Updated UI - auth text: %s, one-to-one mode: %s",
+                   getAuthButtonText(mode), oneToOneMode);
         }
         else {
           Timber.w("onDeviceAttachmentChanged: Device attached but operation mode is null");
-          binding.buttonAuthenticate.setText("Authenticate");
-          binding.buttonAuthenticate.setVisibility(View.VISIBLE);
-          binding.buttonEnroll.setVisibility(View.VISIBLE);
+          // Only show default state if NOT in one-to-one mode
+          boolean oneToOneMode = sharedViewModel.isOneToOneModeEnabled();
+          if (!oneToOneMode) {
+            binding.buttonAuthenticate.setText("Authenticate");
+            binding.buttonAuthenticate.setVisibility(View.VISIBLE);
+            binding.buttonEnroll.setVisibility(View.VISIBLE);
+          }
         }
       }
       else {
         Timber.d("onDeviceAttachmentChanged: No device attached, hiding buttons");
-        getPreviewViewModel().setIsCompatible(false);
-        binding.buttonAuthenticate.setVisibility(View.GONE);
-        binding.buttonEnroll.setVisibility(View.GONE);
+        sharedViewModel.setDeviceCompatible(false);
+        boolean oneToOneMode = sharedViewModel.isOneToOneModeEnabled();
+        if (!oneToOneMode) {
+          binding.buttonAuthenticate.setVisibility(View.GONE);
+          binding.buttonEnroll.setVisibility(View.GONE);
+        }
       }
     });
   }

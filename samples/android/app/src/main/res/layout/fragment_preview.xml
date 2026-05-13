@@ -58,6 +58,30 @@
       app:layout_constraintTop_toTopOf="parent"
       tools:text="Hint Placeholder" />
 
+  <ImageView
+      android:id="@+id/enrolled_image_overlay"
+      android:layout_width="200dp"
+      android:layout_height="200dp"
+      android:background="@android:color/black"
+      android:contentDescription="@string/enroll_cropped_image"
+      android:scaleType="fitCenter"
+      android:visibility="gone"
+      app:layout_constraintStart_toStartOf="@+id/video_overlay"
+      app:layout_constraintTop_toTopOf="@+id/video_overlay" />
+
+  <TextView
+      android:id="@+id/image_debug_info"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:background="#CC000000"
+      android:padding="8dp"
+      android:textColor="@android:color/white"
+      android:textSize="12sp"
+      android:visibility="gone"
+      app:layout_constraintStart_toStartOf="@+id/enrolled_image_overlay"
+      app:layout_constraintTop_toBottomOf="@+id/enrolled_image_overlay"
+      tools:text="HxW: 160x160\nBytes: 76800" />
+
   <LinearLayout
       android:id="@+id/rsid_buttons"
       android:layout_width="match_parent"
@@ -94,6 +118,32 @@
         android:layout_weight="1"
         android:duplicateParentState="true"
         android:text="@string/button_authenticate"
+        android:visibility="gone"
+        app:cornerRadius="8dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_weight="1"
+        android:background="#c0c0cc" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_enroll_cropped_image"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:duplicateParentState="true"
+        android:text="@string/enroll_cropped_image"
+        android:visibility="gone"
+        app:cornerRadius="8dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/button_authenticate_cropped_image"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:duplicateParentState="true"
+        android:text="@string/button_authenticate_cropped_image"
         android:visibility="gone"
         app:cornerRadius="8dp" />
 

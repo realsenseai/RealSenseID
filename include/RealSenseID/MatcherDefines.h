@@ -62,18 +62,6 @@ typedef enum AdjustableThresholdsConfig
     NumThresholdConfigs
 } ThresholdsConfigEnum;
 
-// we allow 3 confidence levels. This is used in our Matcher during authentication :
-// each level means a different set of thresholds is used.
-// This allows the user the flexibility to choose between 3 different FPR rates (Low, Medium, High).
-// Currently, all sets are the "High" confidence level thresholds.
-typedef enum ThresholdsConfidenceLevel
-{
-    ThresholdsConfidenceLevel_High = 0,
-    ThresholdsConfidenceLevel_Medium = 1,
-    ThresholdsConfidenceLevel_Low = 2,
-    NumThresholdsConfidenceLevels
-} ThresholdsConfidenceEnum;
-
 // Single set of matcher thresholds.
 struct Thresholds
 {
@@ -99,9 +87,6 @@ struct Thresholds
     short updateThreshold_pNMgNM;
     short updateThreshold_pMgM;
     short updateThreshold_pMgNM_First; // for opening first adaptive with-mask vector.
-
-    // we'll save the confidence level so to know to which level these thresholds refer.
-    ThresholdsConfidenceEnum confidenceLevel;
 };
 
 // Adaptive thresholds : set during runtime.
