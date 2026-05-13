@@ -47,57 +47,19 @@ bool Matcher::IsSameVersion(const MatchElement& newFaceprints, const Faceprints&
     return versionsMatch;
 }
 
-void Matcher::SetToDefaultThresholds(Thresholds& thresholds, const ThresholdsConfidenceEnum confidenceLevel)
+void Matcher::SetToDefaultThresholds(Thresholds& thresholds)
 {
-    thresholds.confidenceLevel = confidenceLevel;
+    thresholds.identicalThreshold_gNMgNM = s_identicalThreshold_gNMgNM_LowConfLevel;
+    thresholds.identicalThreshold_gMgNM = s_identicalThreshold_gMgNM_LowConfLevel;
 
-    switch (confidenceLevel)
-    {
-    case ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_Low:
-        thresholds.identicalThreshold_gNMgNM = s_identicalThreshold_gNMgNM_LowConfLevel;
-        thresholds.identicalThreshold_gMgNM = s_identicalThreshold_gMgNM_LowConfLevel;
+    thresholds.strongThreshold_pNMgNM = s_strongThreshold_pNMgNM_LowConfLevel;
+    thresholds.strongThreshold_pMgM = s_strongThreshold_pMgM_LowConfLevel;
+    thresholds.strongThreshold_pMgNM = s_strongThreshold_pMgNM_LowConfLevel;
+    thresholds.strongThreshold_pNMgNM_rgbImgEnroll = s_strongThreshold_pNMgNM_rgbImgEnroll_LowConfLevel;
 
-        thresholds.strongThreshold_pNMgNM = s_strongThreshold_pNMgNM_LowConfLevel;
-        thresholds.strongThreshold_pMgM = s_strongThreshold_pMgM_LowConfLevel;
-        thresholds.strongThreshold_pMgNM = s_strongThreshold_pMgNM_LowConfLevel;
-        thresholds.strongThreshold_pNMgNM_rgbImgEnroll = s_strongThreshold_pNMgNM_rgbImgEnroll_LowConfLevel;
-
-        thresholds.updateThreshold_pNMgNM = s_updateThreshold_pNMgNM_LowConfLevel;
-        thresholds.updateThreshold_pMgM = s_updateThreshold_pMgM_LowConfLevel;
-        thresholds.updateThreshold_pMgNM_First = s_updateThreshold_pMgNM_First_LowConfLevel;
-        break;
-
-    case ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_Medium:
-        thresholds.identicalThreshold_gNMgNM = s_identicalThreshold_gNMgNM_MediumConfLevel;
-        thresholds.identicalThreshold_gMgNM = s_identicalThreshold_gMgNM_MediumConfLevel;
-
-        thresholds.strongThreshold_pNMgNM = s_strongThreshold_pNMgNM_MediumConfLevel;
-        thresholds.strongThreshold_pMgM = s_strongThreshold_pMgM_MediumConfLevel;
-        thresholds.strongThreshold_pMgNM = s_strongThreshold_pMgNM_MediumConfLevel;
-        thresholds.strongThreshold_pNMgNM_rgbImgEnroll = s_strongThreshold_pNMgNM_rgbImgEnroll_MediumConfLevel;
-
-        thresholds.updateThreshold_pNMgNM = s_updateThreshold_pNMgNM_MediumConfLevel;
-        thresholds.updateThreshold_pMgM = s_updateThreshold_pMgM_MediumConfLevel;
-        thresholds.updateThreshold_pMgNM_First = s_updateThreshold_pMgNM_First_MediumConfLevel;
-        break;
-
-    case ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High:
-    default:
-        thresholds.identicalThreshold_gNMgNM = s_identicalThreshold_gNMgNM_HighConfLevel;
-        thresholds.identicalThreshold_gMgNM = s_identicalThreshold_gMgNM_HighConfLevel;
-
-        thresholds.strongThreshold_pNMgNM = s_strongThreshold_pNMgNM_HighConfLevel;
-        thresholds.strongThreshold_pMgM = s_strongThreshold_pMgM_HighConfLevel;
-        thresholds.strongThreshold_pMgNM = s_strongThreshold_pMgNM_HighConfLevel;
-        thresholds.strongThreshold_pNMgNM_rgbImgEnroll = s_strongThreshold_pNMgNM_rgbImgEnroll_HighConfLevel;
-
-        thresholds.updateThreshold_pNMgNM = s_updateThreshold_pNMgNM_HighConfLevel;
-        thresholds.updateThreshold_pMgM = s_updateThreshold_pMgM_HighConfLevel;
-        thresholds.updateThreshold_pMgNM_First = s_updateThreshold_pMgNM_First_HighConfLevel;
-        break;
-    }
-
-    // LOG_DEBUG(LOG_TAG, "----> Thresholds confidence level in matcher is : %d.", confidenceLevel);
+    thresholds.updateThreshold_pNMgNM = s_updateThreshold_pNMgNM_LowConfLevel;
+    thresholds.updateThreshold_pMgM = s_updateThreshold_pMgM_LowConfLevel;
+    thresholds.updateThreshold_pMgNM_First = s_updateThreshold_pMgNM_First_LowConfLevel;
 }
 
 void Matcher::InitAdaptiveThresholds(const Thresholds& thresholds, AdaptiveThresholds& adaptiveThresholds)
@@ -274,10 +236,10 @@ bool Matcher::ValidateFaceprints(const MatchElement& faceprints)
 
 ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_faceprints,
                                                     const std::vector<UserFaceprints_t>& existing_faceprints_array,
-                                                    Faceprints& updated_faceprints, const ThresholdsConfidenceEnum confidenceLevel)
+                                                    Faceprints& updated_faceprints)
 {
     Thresholds thresholds;
-    SetToDefaultThresholds(thresholds, confidenceLevel);
+    SetToDefaultThresholds(thresholds);
 
     ExtendedMatchResult result = MatchFaceprintsToArray(probe_faceprints, existing_faceprints_array, updated_faceprints, thresholds);
 
@@ -379,9 +341,9 @@ ExtendedMatchResult Matcher::MatchFaceprintsToArray(const MatchElement& probe_fa
     // information log message here.
     LOG_DEBUG(LOG_TAG,
               "match Score: %d, isSame: %d, shouldUpdate: %d, activeStrongTH: %d, activeUpdateTH: %d, "
-              "activeThreshConfig: %d, confidenceLevel: %d.",
+              "activeThreshConfig: %d.",
               result.maxScore, result.isSame, result.should_update, adaptiveThresholds.activeStrongThreshold,
-              adaptiveThresholds.activeUpdateThreshold, adaptiveThresholds.activeConfig, adaptiveThresholds.thresholds.confidenceLevel);
+              adaptiveThresholds.activeUpdateThreshold, adaptiveThresholds.activeConfig);
 
     return result;
 }
@@ -466,7 +428,7 @@ static void ConvertFaceprintsToUserFaceprints(const Faceprints& faceprints, User
 }
 
 MatchResultInternal Matcher::MatchFaceprints(const MatchElement& probe_faceprints, const Faceprints& existing_faceprints,
-                                             Faceprints& updated_faceprints, ThresholdsConfidenceEnum confidenceLevel)
+                                             Faceprints& updated_faceprints)
 {
     // init match result
     MatchResultInternal matchResult;
@@ -490,7 +452,7 @@ MatchResultInternal Matcher::MatchFaceprints(const MatchElement& probe_faceprint
     std::vector<UserFaceprints_t> existing_faceprints_array = {existing_extended_faceprints};
 
     // match using shared code
-    ExtendedMatchResult result = MatchFaceprintsToArray(probe_faceprints, existing_faceprints_array, updated_faceprints, confidenceLevel);
+    ExtendedMatchResult result = MatchFaceprintsToArray(probe_faceprints, existing_faceprints_array, updated_faceprints);
 
 #if (RSID_MATCHER_DEBUG_LOGS)
     LOG_DEBUG(LOG_TAG, "Match score: %f, isSame: %d, shouldUpdate: %d", float(result.maxScore), result.isSame, result.should_update);

@@ -121,9 +121,11 @@ SerialStatus PacketSender::Recv(SerialPacket& target)
         return status;
     }
 
+    const auto msg_id = target.header.id;
     if (target.header.payload_size > sizeof(SerialPacket::payload))
     {
-        LOG_ERROR(LOG_TAG, "Packet size is bigger than payload max size");
+        LOG_ERROR(LOG_TAG, "Packet size is bigger than payload max size. MsgId: '%c' (%d)", static_cast<char>(msg_id),
+                  static_cast<int>(msg_id));
         return SerialStatus::RecvFailed;
     }
 
@@ -132,7 +134,8 @@ SerialStatus PacketSender::Recv(SerialPacket& target)
     status = _serial->RecvBytes(target_ptr, target.header.payload_size);
     if (status != SerialStatus::Ok)
     {
-        LOG_ERROR(LOG_TAG, "Failed to recv packet payload (%" PRIu16 " bytes)", target.header.payload_size);
+        LOG_ERROR(LOG_TAG, "Failed to recv packet payload (%" PRIu16 " bytes). MsgId: '%c' (%d)", target.header.payload_size,
+                  static_cast<char>(msg_id), static_cast<int>(msg_id));
         return status;
     }
 
@@ -140,7 +143,8 @@ SerialStatus PacketSender::Recv(SerialPacket& target)
     status = _serial->RecvBytes(target.hmac, sizeof(target.hmac));
     if (status != SerialStatus::Ok)
     {
-        LOG_ERROR(LOG_TAG, "Failed to recv packet hmac (%zu bytes)", sizeof(target.hmac));
+        LOG_ERROR(LOG_TAG, "Failed to recv packet hmac (%zu bytes). MsgId: '%c' (%d)", sizeof(target.hmac), static_cast<char>(msg_id),
+                  static_cast<int>(msg_id));
         return status;
     }
 
@@ -148,7 +152,8 @@ SerialStatus PacketSender::Recv(SerialPacket& target)
     status = _serial->RecvBytes(reinterpret_cast<char*>(&target.crc), sizeof(target.crc));
     if (status != SerialStatus::Ok)
     {
-        LOG_ERROR(LOG_TAG, "Failed to recv packet crc (%zu bytes)", sizeof(target.crc));
+        LOG_ERROR(LOG_TAG, "Failed to recv packet crc (%zu bytes). MsgId: '%c' (%d)", sizeof(target.crc), static_cast<char>(msg_id),
+                  static_cast<int>(msg_id));
         return status;
     }
 
@@ -156,7 +161,9 @@ SerialStatus PacketSender::Recv(SerialPacket& target)
     auto expected_crc = CalcCrc(target);
     if (expected_crc != target.crc)
     {
-        LOG_ERROR(LOG_TAG, "Got invalid crc. Expected: %u. Actual: %u", expected_crc, target.crc);
+        // header bytes may themselves be corrupt; logged id is best-effort
+        LOG_ERROR(LOG_TAG, "Got invalid crc. Expected: %u. Actual: %u. MsgId (maybe corrupt): '%c' (%d)", expected_crc, target.crc,
+                  static_cast<char>(msg_id), static_cast<int>(msg_id));
         return SerialStatus::CrcError;
     }
 

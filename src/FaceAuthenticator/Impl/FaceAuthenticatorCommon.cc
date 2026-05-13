@@ -12,9 +12,12 @@
 #include "Matcher/Matcher.h"
 #include "PacketManager/AuthConfigPayload.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include <cstring>
+#include <vector>
 #include <cassert>
-#include <cstdint>
 #include <stdexcept>
 #include <thread>
 #include <chrono>
@@ -35,22 +38,70 @@
 #endif //_WIN32
 
 static const char* LOG_TAG = "FaceAuthenticator";
+static constexpr unsigned int MIN_IMAGE_DIM = 50;
+static constexpr unsigned int MAX_IMAGE_DIM = 10000;
+
+static bool ValidateImage(const unsigned char* buffer, unsigned int width, unsigned int height)
+{
+    return buffer != nullptr && width >= MIN_IMAGE_DIM && width <= MAX_IMAGE_DIM && height >= MIN_IMAGE_DIM && height <= MAX_IMAGE_DIM;
+}
 
 using RealSenseID::PacketManager::AuthConfigPayload;
 using RealSenseID::PacketManager::MsgId;
 
 namespace RealSenseID
 {
+
+static EnrollStatus PipelineToEnroll(Pipeline::FaceResult cr)
+{
+    switch (cr)
+    {
+    case Pipeline::FaceResult::NoFaceDetected:
+        return EnrollStatus::NoFaceDetected;
+    case Pipeline::FaceResult::MultipleFacesDetected:
+        return EnrollStatus::MultipleFacesDetected;
+    case Pipeline::FaceResult::FaceTooFarToTheTop:
+        return EnrollStatus::FaceIsTooFarToTheTop;
+    case Pipeline::FaceResult::FaceTooFarToTheBottom:
+        return EnrollStatus::FaceIsTooFarToTheBottom;
+    case Pipeline::FaceResult::FaceTooFarToTheRight:
+        return EnrollStatus::FaceIsTooFarToTheRight;
+    case Pipeline::FaceResult::FaceTooFarToTheLeft:
+        return EnrollStatus::FaceIsTooFarToTheLeft;
+    default:
+        return EnrollStatus::Failure;
+    }
+}
+
+static AuthenticateStatus PipelineToAuth(Pipeline::FaceResult cr)
+{
+    switch (cr)
+    {
+    case Pipeline::FaceResult::NoFaceDetected:
+        return AuthenticateStatus::NoFaceDetected;
+    case Pipeline::FaceResult::FaceTooFarToTheTop:
+        return AuthenticateStatus::FaceIsTooFarToTheTop;
+    case Pipeline::FaceResult::FaceTooFarToTheBottom:
+        return AuthenticateStatus::FaceIsTooFarToTheBottom;
+    case Pipeline::FaceResult::FaceTooFarToTheRight:
+        return AuthenticateStatus::FaceIsTooFarToTheRight;
+    case Pipeline::FaceResult::FaceTooFarToTheLeft:
+        return AuthenticateStatus::FaceIsTooFarToTheLeft;
+    default:
+        return AuthenticateStatus::Failure;
+    }
+}
+
 namespace Impl
 {
 
-static constexpr unsigned int NUM_LANDMARKS = 5;
 static constexpr unsigned int MAX_FACES = 5;
 static constexpr unsigned int QUERY_CHUNK_SIZE = 50;
-static constexpr unsigned int MAX_UPLOAD_IMG_SIZE = 900 * 1024;
 static constexpr std::chrono::milliseconds ENROLL_MAX_TIMEOUT {12'000};
 static constexpr std::chrono::milliseconds AUTH_MAX_TIMEOUT {10'000};
 static constexpr std::chrono::milliseconds KEEP_ALIVE_INTERVAL {4'000};
+// max consecutive CRC errors before authentication loop is aborted
+static constexpr unsigned int MAX_CONSECUTIVE_CRC_ERRORS = 3;
 
 // Auto canceler implementation.
 // Used to ensure session cancellation at the end of detection/auth loops, unless explicitly disabled by
@@ -78,6 +129,24 @@ void FaceAuthenticatorCommon::AutoCanceler::DoNotCancel()
 {
     _session = nullptr;
 }
+
+#ifdef RSID_PIPELINE
+Pipeline::FaceResult FaceAuthenticatorCommon::CropFace(const unsigned char* buffer, unsigned int width, unsigned int height,
+                                                       Pipeline::FacePolicy policy, Pipeline::Image& output)
+{
+    Pipeline::Image input {static_cast<int>(width), static_cast<int>(height), buffer, Pipeline::Image::BGR};
+    return Pipeline::DetectAndCropFace(input, output, policy);
+}
+#else
+// No op. Just return the input image as output without cropping, and Success result.
+Pipeline::FaceResult FaceAuthenticatorCommon::CropFace(const unsigned char* buffer, unsigned int width, unsigned int height,
+                                                       Pipeline::FacePolicy policy, Pipeline::Image& output)
+{
+    (void)policy;
+    output = Pipeline::Image {static_cast<int>(width), static_cast<int>(height), buffer, Pipeline::Image::BGR};
+    return Pipeline::FaceResult::Success;
+}
+#endif
 
 static char to_printable(PacketManager::MsgId id)
 {
@@ -124,7 +193,7 @@ static AuthConfigPayload CreateAuthConfigPayload(const DeviceConfig& config)
     for (size_t i = 0; i < config.num_rois && i < AuthConfigPayload::MAX_ROIS; i++)
         packet.detection_rois[i] = {config.detection_rois[i].x, config.detection_rois[i].y, config.detection_rois[i].width,
                                     config.detection_rois[i].height};
-    packet.distance_limit = static_cast<uint8_t>(config.distance_limit);
+    packet.distance_limit_cm = config.distance_limit_cm;
     packet.distance_enabled = config.distance_enabled ? 1 : 0;
     packet.num_rois = config.num_rois;
     return packet;
@@ -149,7 +218,7 @@ static void ParseAuthConfigPayload(const AuthConfigPayload& packet, DeviceConfig
     for (unsigned char i = 0; i < DeviceConfig::MAX_ROIS; i++)
         config.detection_rois[i] = {packet.detection_rois[i].x, packet.detection_rois[i].y, packet.detection_rois[i].w,
                                     packet.detection_rois[i].h};
-    config.distance_limit = static_cast<DeviceConfig::DistanceLimit>(packet.distance_limit);
+    config.distance_limit_cm = packet.distance_limit_cm;
     config.distance_enabled = (packet.distance_enabled == 1);
     unsigned char nr = packet.num_rois;
     if (nr == 0 || nr > DeviceConfig::MAX_ROIS)
@@ -157,36 +226,6 @@ static void ParseAuthConfigPayload(const AuthConfigPayload& packet, DeviceConfig
     config.num_rois = nr;
 }
 
-
-void DownloadImage::OnStart(unsigned int width, unsigned int height, unsigned timestamp)
-{
-    auto buffer_size = static_cast<size_t>(width * height * 3);
-    buffer.reserve(buffer_size);
-    buffer.clear();
-    w = width;
-    h = height;
-    ts = timestamp;
-    last_chunk = 0;
-    timer.Reset();
-}
-
-bool DownloadImage::AddChunk(unsigned short chunk_n, unsigned char* data, size_t size)
-{
-    if (chunk_n != 0 && chunk_n != last_chunk + 1)
-    {
-        LOG_ERROR(LOG_TAG, "Got invalid chunk number. Expected %u. Got %u", last_chunk + 1, chunk_n);
-        return false;
-    }
-    if (buffer.size() + size > MAX_UPLOAD_IMG_SIZE)
-    {
-        LOG_ERROR(LOG_TAG, "Max upload size exceeded");
-        return false;
-    }
-
-    buffer.insert(buffer.end(), data, data + size);
-    last_chunk = chunk_n;
-    return true;
-}
 
 // save callback functions to use in the secure session later
 FaceAuthenticatorCommon::FaceAuthenticatorCommon(SignatureCallback* callback) :
@@ -509,7 +548,18 @@ Status FaceAuthenticatorCommon::Enroll(EnrollmentCallback& callback, const char*
     }
 }
 
-// send image to device in chunks
+// Callback for stbi_write_png_to_func — appends PNG data to a vector
+static void PngWriteCallback(void* context, void* data, int size)
+{
+    if (size <= 0)
+        return;
+    auto* out = static_cast<std::vector<unsigned char>*>(context);
+    auto* bytes = static_cast<const unsigned char*>(data);
+    out->insert(out->end(), bytes, bytes + size);
+}
+
+// Encode BGR24 image to PNG and send to device in chunks.
+// Chunk header: [chunk_number (2 bytes)] [total_data_size (4 bytes)] [data ...]
 Status FaceAuthenticatorCommon::SendImageToDevice(const unsigned char* buffer, unsigned int width, unsigned int height)
 {
     if (buffer == nullptr)
@@ -524,14 +574,35 @@ Status FaceAuthenticatorCommon::SendImageToDevice(const unsigned char* buffer, u
         return Status::Error;
     }
 
-    uint32_t image_size = ((uint32_t)width * (uint32_t)height) * 3;
-    if (image_size == 0 || image_size > MAX_UPLOAD_IMG_SIZE)
+    uint32_t raw_image_size = ((uint32_t)width * (uint32_t)height) * 3;
+    if (raw_image_size == 0 || raw_image_size > MAX_RAW_IMG_SIZE)
     {
-        LOG_ERROR(LOG_TAG, "Invalid image size %u", image_size);
+        LOG_ERROR(LOG_TAG, "Invalid image size %u", raw_image_size);
         return Status::Error;
     }
 
-    // split to chunks and send to device
+    // Encode BGR24 to PNG. The PNG stores raw channel bytes as-is (no RGB/BGR reorder),
+    // so the device decodes back to the same BGR24 byte order.
+    std::vector<unsigned char> png_buffer;
+    png_buffer.reserve(raw_image_size / 2);
+    int png_ok = stbi_write_png_to_func(PngWriteCallback,           /* callback for PNG output chunks */
+                                        &png_buffer,                /* context passed to callback */
+                                        static_cast<int>(width),    /* image width in pixels */
+                                        static_cast<int>(height),   /* image height in pixels */
+                                        3,                          /* channels per pixel (BGR24) */
+                                        buffer,                     /* raw pixel data */
+                                        static_cast<int>(width * 3) /* stride: bytes per row */
+    );
+    if (!png_ok || png_buffer.empty())
+    {
+        LOG_ERROR(LOG_TAG, "PNG encoding failed");
+        return Status::Error;
+    }
+
+    uint32_t image_size = static_cast<uint32_t>(png_buffer.size());
+    LOG_DEBUG(LOG_TAG, "PNG encoded %ux%u: %u -> %u bytes", width, height, raw_image_size, image_size);
+
+    // Split to chunks and send to device
     auto constexpr chunk_size = sizeof(PacketManager::DataMessage::data);
     static_assert(chunk_size > 128, "invalid chunk size");
 
@@ -546,9 +617,7 @@ Status FaceAuthenticatorCommon::SendImageToDevice(const unsigned char* buffer, u
         n_chunks++;
     }
 
-    const auto width_16 = static_cast<uint16_t>(width);
-    const auto height_16 = static_cast<uint16_t>(height);
-    LOG_DEBUG(LOG_TAG, "Sending %d chunks..", n_chunks);
+    LOG_DEBUG(LOG_TAG, "Sending %u chunks..", n_chunks);
     char chunk[chunk_size];
     size_t total_image_bytes_sent = 0;
 
@@ -559,10 +628,9 @@ Status FaceAuthenticatorCommon::SendImageToDevice(const unsigned char* buffer, u
             StartSession();
             auto chunk_number = static_cast<uint16_t>(i);
             ::memcpy(&chunk[0], &chunk_number, sizeof(chunk_number));
-            ::memcpy(&chunk[2], &width_16, sizeof(width_16));
-            ::memcpy(&chunk[4], &height_16, sizeof(height_16));
+            ::memcpy(&chunk[2], &image_size, sizeof(image_size));
 
-            auto* image_chunk_ptr = &buffer[chunk_number * image_chunk_size];
+            auto* image_chunk_ptr = &png_buffer[static_cast<size_t>(chunk_number) * image_chunk_size];
             auto is_last_chunk = (i == n_chunks - 1);
             uint32_t bytes_to_send = is_last_chunk ? last_chunk_size : image_chunk_size;
             ::memcpy((unsigned char*)&chunk[6], image_chunk_ptr, bytes_to_send);
@@ -598,14 +666,22 @@ Status FaceAuthenticatorCommon::SendImageToDevice(const unsigned char* buffer, u
     return Status::Ok;
 }
 
+// Multi-face: selects best face if multiple detected
 EnrollStatus FaceAuthenticatorCommon::EnrollImage(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height)
 {
-    return EnrollImageImpl(MsgId::EnrollImage, user_id, buffer, width, height);
+    return EnrollImageImpl(MsgId::EnrollImage, user_id, buffer, width, height, Pipeline::FacePolicy::SingleFace);
 }
 
+// Single-face only: rejects if multiple faces detected
 EnrollStatus FaceAuthenticatorCommon::EnrollImageFeatureExtraction(const char* user_id, const unsigned char* buffer, unsigned int width,
                                                                    unsigned int height, ExtractedFaceprints* faceprints)
 {
+    if (!ValidateImage(buffer, width, height))
+    {
+        LOG_ERROR(LOG_TAG, "EnrollImageFeatureExtraction: invalid image dimensions %ux%u", width, height);
+        return EnrollStatus::Failure;
+    }
+
     if (!ValidateUserId(user_id))
     {
         LOG_ERROR(LOG_TAG, "invalid user id");
@@ -618,7 +694,16 @@ EnrollStatus FaceAuthenticatorCommon::EnrollImageFeatureExtraction(const char* u
         return EnrollStatus::Failure;
     }
 
-    Status imageSendingStatus = SendImageToDevice(buffer, width, height);
+    Pipeline::Image cropped;
+    auto cropResult = CropFace(buffer, width, height, Pipeline::FacePolicy::SingleFace, cropped);
+    if (cropResult != Pipeline::FaceResult::Success)
+    {
+        LOG_ERROR(LOG_TAG, "EnrollImageFeatureExtraction: detect/crop failed (%d)", static_cast<int>(cropResult));
+        return PipelineToEnroll(cropResult);
+    }
+
+    Status imageSendingStatus =
+        SendImageToDevice(cropped.data(), static_cast<unsigned int>(cropped.width), static_cast<unsigned int>(cropped.height));
     if (Status::Ok != imageSendingStatus)
     {
         LOG_ERROR(LOG_TAG, "Error sending the image to the device. status %d", static_cast<int>(imageSendingStatus));
@@ -694,6 +779,7 @@ Status FaceAuthenticatorCommon::AuthenticateLoop(AuthenticationCallback& callbac
 
         Status session_status = Status::Ok;
         PacketManager::Timer ka_timer {KEEP_ALIVE_INTERVAL};
+        unsigned int consecutive_crc_errors = 0;
 
         while (!_cancel_loop)
         {
@@ -704,8 +790,22 @@ Status FaceAuthenticatorCommon::AuthenticateLoop(AuthenticationCallback& callbac
                 SendProgress(true);
                 ka_timer.Reset();
             }
-
-            const auto received_id = Recv(fa_packet);
+            PacketManager::MsgId received_id = MsgId::None;
+            try
+            {
+                received_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    callback.OnResult(AuthenticateStatus::CrcError, "", 0);
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
 
             // if it returns false, it means a 'MsgId::Reply' was received and the loop should end.
             if (!ProcessAuthPacket(received_id, fa_packet, callback, session_status))
@@ -1410,6 +1510,7 @@ Status FaceAuthenticatorCommon::ExtractFaceprintsForAuthLoop(AuthFaceprintsExtra
 
         PacketManager::Timer ka_timer {KEEP_ALIVE_INTERVAL};
         bool faceprints_extraction_completed_on_device = false, received_faceprints_in_host = false;
+        unsigned int consecutive_crc_errors = 0;
         while (!_cancel_loop)
         {
             if (ka_timer.ReachedTimeout())
@@ -1443,7 +1544,22 @@ Status FaceAuthenticatorCommon::ExtractFaceprintsForAuthLoop(AuthFaceprintsExtra
                 continue;
             }
 
-            auto msg_id = Recv(fa_packet);
+            PacketManager::MsgId msg_id = MsgId::None;
+            try
+            {
+                msg_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    callback.OnResult(AuthenticateStatus::CrcError, nullptr);
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
 
             // handle face detected as data packet
             if (msg_id == MsgId::FaceDetected)
@@ -1533,10 +1649,10 @@ Status FaceAuthenticatorCommon::ExtractFaceprintsForAuthLoop(AuthFaceprintsExtra
 }
 
 MatchResultHost FaceAuthenticatorCommon::MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints,
-                                                         Faceprints& updated_faceprints, ThresholdsConfidenceEnum matcher_confidence_level)
+                                                         Faceprints& updated_faceprints)
 {
     MatchResultHost finalResult;
-    auto result = Matcher::MatchFaceprints(new_faceprints, existing_faceprints, updated_faceprints, matcher_confidence_level);
+    auto result = Matcher::MatchFaceprints(new_faceprints, existing_faceprints, updated_faceprints);
     finalResult.success = result.success;
     finalResult.should_update = result.should_update;
     finalResult.score = result.score;
@@ -1751,14 +1867,29 @@ Status FaceAuthenticatorCommon::GetUsersFaceprints(Faceprints* user_features, un
 
 // Do enroll session with the device using the given bgr24 face image
 EnrollStatus FaceAuthenticatorCommon::EnrollImageImpl(MsgId msgId, const char* user_id, const unsigned char* buffer, unsigned int width,
-                                                      unsigned int height)
+                                                      unsigned int height, Pipeline::FacePolicy policy)
 {
+    if (!ValidateImage(buffer, width, height))
+    {
+        LOG_ERROR(LOG_TAG, "EnrollImageImpl: invalid image dimensions %ux%u", width, height);
+        return EnrollStatus::Failure;
+    }
+
     if (!ValidateUserId(user_id))
     {
         return EnrollStatus::Failure;
     }
 
-    Status imageSendingStatus = SendImageToDevice(buffer, width, height);
+    Pipeline::Image cropped;
+    auto cropResult = CropFace(buffer, width, height, policy, cropped);
+    if (cropResult != Pipeline::FaceResult::Success)
+    {
+        LOG_ERROR(LOG_TAG, "Error cropping the input image (%d)", static_cast<int>(cropResult));
+        return PipelineToEnroll(cropResult);
+    }
+
+    Status imageSendingStatus =
+        SendImageToDevice(cropped.data(), static_cast<unsigned int>(cropped.width), static_cast<unsigned int>(cropped.height));
     if (Status::Ok != imageSendingStatus)
     {
         LOG_ERROR(LOG_TAG, "Error sending the image to the device. status %d", static_cast<int>(imageSendingStatus));
@@ -1822,10 +1953,10 @@ bool FaceAuthenticatorCommon::ProcessAuthPacket(MsgId msg_id, const PacketManage
     }
 
     case MsgId::FaceDistances: {
-        unsigned int ts = 0;
-        auto distances = GetFaceDistances(packet, ts);
+        unsigned int ts1 = 0;
+        auto distances = GetFaceDistances(packet, ts1);
         if (!distances.empty())
-            callback.OnFaceDistances(distances, ts);
+            callback.OnFaceDistances(distances, ts1);
         break;
     }
 
@@ -1909,30 +2040,11 @@ Status FaceAuthenticatorCommon::AuthenticateImpl(MsgId msgId, AuthenticationCall
     }
 }
 
-#ifdef RSID_ONE2ONE
-
+// Single-face only: rejects if multiple faces detected
 EnrollStatus FaceAuthenticatorCommon::EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width,
                                                           unsigned int height)
 {
-    // normalize image using pipeline and send to enroll
-    try
-    {
-        Pipeline::ImageResult normalized;
-        auto pipeResult = NormalizeImage(buffer, width, height, normalized);
-        if (pipeResult != Pipeline::ReturnCode::Success)
-        {
-            LOG_ERROR(LOG_TAG, "ProcessImage failed with status %d", pipeResult);
-            return EnrollStatus::Failure;
-        }
-        LOG_INFO(LOG_TAG, "Enrolling image with size %ux%u", normalized.width, normalized.height);
-        auto enrollResult = EnrollImageImpl(MsgId::EnrollImageOneToOne, user_id, normalized.data, normalized.width, normalized.height);
-        return enrollResult;
-    }
-    catch (const std::exception& ex)
-    {
-        LOG_ERROR(LOG_TAG, "EnrollImage failed: %s", ex.what());
-        return EnrollStatus::Failure;
-    }
+    return EnrollImageImpl(MsgId::EnrollImageOneToOne, user_id, buffer, width, height, Pipeline::FacePolicy::SingleFace);
 }
 
 Status FaceAuthenticatorCommon::AuthenticateOneToOne(AuthenticationCallback& callback)
@@ -1940,23 +2052,31 @@ Status FaceAuthenticatorCommon::AuthenticateOneToOne(AuthenticationCallback& cal
     return AuthenticateImpl(MsgId::AuthenticateOneToOne, callback);
 }
 
+// Single-face only: rejects if multiple faces detected
 AuthenticateStatus FaceAuthenticatorCommon::AuthenticateImageOneToOne(const unsigned char* buffer, unsigned int width, unsigned int height,
                                                                       std::string& user_id, short& score)
 {
+    if (!ValidateImage(buffer, width, height))
+    {
+        LOG_ERROR(LOG_TAG, "AuthenticateImageOneToOne: invalid image dimensions %ux%u", width, height);
+        return AuthenticateStatus::Failure;
+    }
+
     // normalize image using pipeline and send to authenticate
     user_id.clear();
     try
     {
-        Pipeline::ImageResult normalized;
-        auto pipeResult = NormalizeImage(buffer, width, height, normalized);
-        if (pipeResult != Pipeline::ReturnCode::Success)
+        Pipeline::Image prepared;
+        auto cropResult = CropFace(buffer, width, height, Pipeline::FacePolicy::SingleFace, prepared);
+        if (cropResult != Pipeline::FaceResult::Success)
         {
-            LOG_ERROR(LOG_TAG, "ProcessImage failed with status %d", pipeResult);
-            return AuthenticateStatus::Failure;
+            LOG_ERROR(LOG_TAG, "DetectAndCropFace failed (%d)", static_cast<int>(cropResult));
+            return PipelineToAuth(cropResult);
         }
 
-        LOG_INFO(LOG_TAG, "Authenticating image with size %ux%u", normalized.width, normalized.height);
-        Status imageSendingStatus = SendImageToDevice(normalized.data, normalized.width, normalized.height);
+        LOG_INFO(LOG_TAG, "Authenticating image with size %dx%d", prepared.width, prepared.height);
+        Status imageSendingStatus =
+            SendImageToDevice(prepared.data(), static_cast<unsigned int>(prepared.width), static_cast<unsigned int>(prepared.height));
         if (Status::Ok != imageSendingStatus)
         {
             LOG_ERROR(LOG_TAG, "Error sending the image to the device. status %d", static_cast<int>(imageSendingStatus));
@@ -1990,72 +2110,24 @@ AuthenticateStatus FaceAuthenticatorCommon::AuthenticateImageOneToOne(const unsi
     }
 }
 
-// normalize image using pipeline and then to extract faceprints using the pipeline
-// no interaction with the device..
-Status FaceAuthenticatorCommon::ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                                        ExtractedFaceprints* faceprints)
+#ifdef RSID_PIPELINE
+Status FaceAuthenticatorCommon::DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result,
+                                           bool expand_roi)
 {
-    if (faceprints == nullptr)
+    if (!ValidateImage(buffer, width, height))
     {
-        LOG_ERROR(LOG_TAG, "ExtractImageFaceprintsOnHost: faceprints is nullptr");
+        LOG_ERROR(LOG_TAG, "DetectFace: invalid image dimensions %ux%u", width, height);
         return Status::Error;
     }
+
     try
     {
-        Pipeline::ImageResult normalized;
-        auto pipeResult = NormalizeImage(buffer, width, height, normalized);
-        if (pipeResult != Pipeline::ReturnCode::Success)
-        {
-            LOG_ERROR(LOG_TAG, "ProcessImage failed with status %d", pipeResult);
-            return Status::Error;
-        }
-
-        std::vector<short> features;
-        pipeResult = GetPipeLine()->ExtractFeatures(normalized, features);
-        if (pipeResult != Pipeline::ReturnCode::Success)
-        {
-            LOG_ERROR(LOG_TAG, "ExtractFeatures failed with status %d", pipeResult);
-            return Status::Error;
-        }
-
-        // put result in the pExtractedFaceprints var
-        faceprints->data.version = RSID_FACEPRINTS_VERSION;
-        faceprints->data.featuresType = 0;
-        faceprints->data.flags = OpFlagEnrollWithoutMask;
-        std::memset(faceprints->data.featuresVector, 0, sizeof(faceprints->data.featuresVector));
-        if (features.size() != RSID_NUM_OF_RECOGNITION_FEATURES)
-        {
-            LOG_ERROR(LOG_TAG, "ExtractFeatures size mismatch. Expected %u. Got: %u", RSID_NUM_OF_RECOGNITION_FEATURES, features.size());
-            return Status::Error;
-        }
-        static_assert(std::is_same_v<decltype(features)::value_type, feature_t>, "features vector must be feature_t");
-        std::memcpy(faceprints->data.featuresVector, features.data(), features.size() * sizeof(feature_t));
-        return Status::Ok;
-    }
-    catch (const std::exception& ex)
-    {
-        LOG_ERROR(LOG_TAG, "ExtractImageFaceprints failed: %s", ex.what());
-        return Status::Error;
-    }
-}
-
-Status FaceAuthenticatorCommon::DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result)
-{
-    try
-    {
-        auto pipe = GetPipeLine();
         Pipeline::FaceBox faceBox;
-        Pipeline::Image input {static_cast<uint16_t>(width), static_cast<uint16_t>(height), 3, (uint8_t*)buffer, Pipeline::Image::BGR};
-        auto pipeResult = pipe->DetectFace(input, faceBox);
-
-        if (pipeResult != Pipeline::ReturnCode::Success)
+        Pipeline::Image input {static_cast<int>(width), static_cast<int>(height), buffer, Pipeline::Image::BGR};
+        bool ok = Pipeline::DetectFace(input, faceBox, expand_roi);
+        if (!ok)
         {
-            if (pipeResult != Pipeline::ReturnCode::NoFaceDetected)
-            {
-                LOG_ERROR(LOG_TAG, "DetectFace() failed with status %d (%s)", static_cast<int>(pipeResult),
-                          Pipeline::Api::ToString(pipeResult));
-            }
-            result = FaceRect {0, 0, 0, 0};
+            result = FaceRect {0};
             return Status::Error;
         }
 
@@ -2076,25 +2148,19 @@ Status FaceAuthenticatorCommon::DetectFace(const unsigned char* buffer, unsigned
         return Status::Error;
     }
 }
-
-// create and initialize pipeline once
-std::shared_ptr<Pipeline::Api> FaceAuthenticatorCommon::GetPipeLine()
+#else // No pipeline — DetectFace is purely host-side, no device fallback.
+Status FaceAuthenticatorCommon::DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result,
+                                           bool expand_roi)
 {
-    static auto pipe = Pipeline::Api::Create();
-    return pipe;
+    (void)buffer;
+    (void)width;
+    (void)height;
+    (void)expand_roi;
+    LOG_WARNING(LOG_TAG, "DetectFace: not supported (built without RSID_PIPELINE)");
+    result = FaceRect {0};
+    return Status::NotSupported;
 }
-
-// create normalized image using pipeline
-// throw on error
-Pipeline::ReturnCode FaceAuthenticatorCommon::NormalizeImage(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                                             Pipeline::ImageResult& result)
-{
-    auto pipe = GetPipeLine();
-    Pipeline::Image input {static_cast<uint16_t>(width), static_cast<uint16_t>(height), 3, (uint8_t*)buffer, Pipeline::Image::BGR};
-    return pipe->ProcessImage(input, result);
-}
-
-#endif // RSID_ONE2ONE
+#endif
 
 void FaceAuthenticatorCommon::SendProgress(bool msg)
 {
@@ -2113,33 +2179,32 @@ bool FaceAuthenticatorCommon::GetFaceCroppedImage(const PacketManager::SerialPac
     static_assert(chunk_size <= sizeof(packet.payload.message.data_msg.data), "invalid chunk size");
     static_assert(chunk_size > 128, "invalid chunk size");
     size_t image_chunk_size = chunk_size - 10;
-    // first 10 bytes are: chunk_n(2), width(2), height(2), ts(4)
-    uint16_t chunk_n, width, height;
+    // first 10 bytes are: chunk_n(2), total_compressed_size(4), ts(4)
+    uint16_t chunk_n;
+    uint32_t total_compressed_size = 0;
     uint32_t ts = 0;
     ::memcpy(&chunk_n, &data[0], sizeof(chunk_n));
-    ::memcpy(&width, &data[2], sizeof(width));
-    ::memcpy(&height, &data[4], sizeof(height));
+    ::memcpy(&total_compressed_size, &data[2], sizeof(total_compressed_size));
     ::memcpy(&ts, &data[6], sizeof(ts));
-    size_t image_size = static_cast<size_t>(width) * static_cast<size_t>(height) * 3;
 
-    if (image_size == 0 || image_size > MAX_UPLOAD_IMG_SIZE)
+    if (total_compressed_size == 0 || total_compressed_size > MAX_COMPRESSED_IMG_SIZE)
     {
-        LOG_ERROR(LOG_TAG, "Invalid image size %u", image_size);
+        LOG_ERROR(LOG_TAG, "Invalid compressed size %u", total_compressed_size);
         return false;
     }
 
-    auto n_chunks = image_size / image_chunk_size;
-    auto last_chunk_size = image_size % image_chunk_size;
+    auto n_chunks = static_cast<size_t>(total_compressed_size) / image_chunk_size;
+    auto last_chunk_size = static_cast<size_t>(total_compressed_size) % image_chunk_size;
     if (last_chunk_size > 0)
     {
         n_chunks++;
     }
-    LOG_DEBUG(LOG_TAG, "Received chunk %u/%u", chunk_n + 1, n_chunks);
+    LOG_DEBUG(LOG_TAG, "Received chunk %u/%zu", chunk_n + 1, n_chunks);
 
-    // first chunk. allocate buffer and
+    // first chunk - allocate accumulation buffer
     if (chunk_n == 0)
     {
-        _image_downloader.OnStart(static_cast<unsigned>(width), static_cast<unsigned>(height), ts);
+        _image_downloader.OnStart(total_compressed_size, ts);
     }
 
     bool is_last_chunk = ((chunk_n + 1u) == n_chunks);
@@ -2147,14 +2212,19 @@ bool FaceAuthenticatorCommon::GetFaceCroppedImage(const PacketManager::SerialPac
 
     if (!_image_downloader.AddChunk(chunk_n, (unsigned char*)&data[10], cur_chunk_size))
     {
-        LOG_DEBUG(LOG_TAG, "Failed to add chunk %u/%u", chunk_n + 1, n_chunks);
+        LOG_DEBUG(LOG_TAG, "Failed to add chunk %u/%zu", chunk_n + 1, n_chunks);
         return false;
     }
 
     if (is_last_chunk)
     {
-        LOG_DEBUG(LOG_TAG, "Image downloaded. %ux%u, %u bytes, %u chunks %zu millis", _image_downloader.w, _image_downloader.h,
-                  _image_downloader.buffer.size(), n_chunks, _image_downloader.timer.Elapsed().count());
+        if (!_image_downloader.Decode())
+        {
+            LOG_ERROR(LOG_TAG, "Failed to decode compressed image");
+            return false;
+        }
+        LOG_DEBUG(LOG_TAG, "Image downloaded %ux%u, %u bytes, %zu chunks", _image_downloader.w, _image_downloader.h, total_compressed_size,
+                  n_chunks);
         inProgress = false;
     }
 

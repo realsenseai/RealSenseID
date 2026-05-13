@@ -78,7 +78,7 @@ Logger::Logger()
         auto truncate = true;
         sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(logfile, truncate));
         _logger->set_level(spdlog::level::debug);
-        _logger->flush_on(spdlog::level::debug); // flush each log message immediately to the file.
+        _logger->flush_on(spdlog::level::info); // flush info+ immediately; debug lines stay buffered.
     }
     catch (const std::exception& ex)
     {

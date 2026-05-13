@@ -2,6 +2,7 @@ package com.realsenseai.rsid.sample.ui.preview;
 
 import static androidx.core.util.ObjectsCompat.requireNonNull;
 
+import android.content.Context;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -36,6 +37,9 @@ import com.realsenseai.rsid.sample.ui.shared.RealSenseIdSharedViewModel;
 import com.realsenseai.rsid.sample.util.SDKWrapper;
 import com.realsenseai.rsid.sample.util.UsbDevicesReceiver;
 import com.realsenseai.rsid.sample.util.preview.PreviewHelper;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import timber.log.Timber;
@@ -44,6 +48,11 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
   implements RealSenseIdPreviewCallback, UsbDevicesReceiver.UsbListener {
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  // Background executor for USB/SDK calls that must not run on the UI thread.
+  // UsbManager.getDeviceList() and other SDK calls hit binder/usbfs ioctls that
+  // can hang for >10s when the device is mid-reboot or the USB stack is busy
+  // recovering — running them on main triggered an input-dispatch ANR.
+  private ExecutorService usbExecutor;
   private final AtomicBoolean isDestroyed = new AtomicBoolean(false);
   private final AtomicBoolean isProcessingFrame = new AtomicBoolean(false);
   private final AtomicLong frameCounter = new AtomicLong(0);
@@ -51,7 +60,6 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
   private final Object surfaceLock = new Object();
   private UsbDevicesReceiver usbReceiver;
   private View rootView;
-  private PreviewViewModel previewViewModel;
   private Preview preview;
   private PreviewHelper previewHelper;
   private long lastFrameTime = 0;
@@ -113,6 +121,13 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
 
     try {
       PreviewConfig previewConfig = createPreviewConfig(config);
+      if (previewConfig == null) {
+        Timber.w("Preview unavailable: device has no UVC interface");
+        cleanupPreview();
+
+        startFpsSampling(); // This will reboot the device after 10 seconds
+        return;
+      }
       previewConfig.setDeviceType(deviceType);
       preview = new Preview(previewConfig);
       previewHelper = new PreviewHelper(callback, sharedViewModel);
@@ -227,13 +242,32 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
   }
 
   private void cleanupPreview() {
-    preview = null;
+    // SWIG delete() fires the native destructor synchronously. Without this, native PreviewImpl
+    // (owns the libuvc CaptureHandle) only goes away on Java GC, so USB device handles, transfer
+    // queues, and interface claims stay alive in the kernel well after Java says "preview stopped".
+    if (preview != null) {
+      try {
+        preview.delete();
+      }
+      catch (Exception e) {
+        Timber.e(e, "Error deleting native Preview");
+      }
+      finally {
+        preview = null;
+      }
+    }
     if (previewHelper != null) {
       try {
         previewHelper.release();
       }
       catch (Exception e) {
         Timber.e(e, "Error releasing preview helper");
+      }
+      try {
+        previewHelper.delete();
+      }
+      catch (Exception e) {
+        Timber.e(e, "Error deleting native PreviewImageReadyCallback");
       }
       finally {
         previewHelper = null;
@@ -252,7 +286,6 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
     isDestroyed.set(false);
     showCameraIcon();
 
-    previewViewModel = new ViewModelProvider(this).get(PreviewViewModel.class);
     rootView = getRootView(layoutInflater, container);
     return rootView;
   }
@@ -265,7 +298,7 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
     if (!isDestroyed.get()) {
       observeViewModelStates();
 
-      // Initialize TextureView with proper listener
+      // Initialize TextureView with a proper listener
       TextureView textureView = getVideoView();
       if (textureView != null) {
         textureView.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
@@ -326,16 +359,38 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
 
       // Longer delay to ensure everything is ready and avoid race conditions
       mainHandler.postDelayed(() -> {
-        if (isFragmentAttached() && !isDestroyed.get() && usbReceiver != null &&
-            usbReceiver.isRealSenseIdDeviceAttached(requireContext())) {
-          DeviceType deviceType = sharedViewModel.getDeviceType().getValue();
-          if (deviceType != null) {
-            initializePreview(deviceType, this);
-          }
-          else {
-            Timber.e("Device not supported");
-          }
+        if (!isFragmentAttached() || isDestroyed.get() || usbReceiver == null) {
+          return;
         }
+        // Check USB device list off the UI thread — getDeviceList() is a binder
+        // hop into system_server's UsbService and can stall under USB stress.
+        UsbDevicesReceiver receiverRef = usbReceiver;
+        Context appCtx = requireContext().getApplicationContext();
+        getUsbExecutor().execute(() -> {
+          boolean attached;
+          try {
+            attached = receiverRef.isRealSenseIdDeviceAttached(appCtx);
+          }
+          catch (Exception e) {
+            Timber.e(e, "isRealSenseIdDeviceAttached failed");
+            return;
+          }
+          if (!attached) {
+            return;
+          }
+          mainHandler.post(() -> {
+            if (!isFragmentAttached() || isDestroyed.get()) {
+              return;
+            }
+            DeviceType deviceType = sharedViewModel.getDeviceType().getValue();
+            if (deviceType != null) {
+              initializePreview(deviceType, this);
+            }
+            else {
+              Timber.e("Device not supported");
+            }
+          });
+        });
       }, 500);
     }
     catch (Exception e) {
@@ -586,12 +641,16 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
           if (fps < 0.1) {  // No frames for 10 seconds!
             Timber.i(SDKWrapper.INSTANCE.getDiagnosticInfo());
             Timber.w("FPS is zero, restarting camera!");
-            try {
-              requireNonNull(SDKWrapper.INSTANCE.getDeviceController()).Reboot();
-            }
-            catch (Exception e) {
-              Timber.e(e, "Error rebooting device");
-            }
+            // Reboot() sends a serial command to the device — runs on the
+            // background executor so a stalled USB stack can't ANR the UI.
+            getUsbExecutor().execute(() -> {
+              try {
+                requireNonNull(SDKWrapper.INSTANCE.getDeviceController()).Reboot();
+              }
+              catch (Exception e) {
+                Timber.e(e, "Error rebooting device");
+              }
+            });
           }
           else {
             startFpsSampling();
@@ -651,7 +710,6 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
     Timber.d("onDestroy");
 
     isDestroyed.set(true);
-    previewViewModel = null;
 
     try {
       SDKWrapper.INSTANCE.closeConnection();
@@ -660,7 +718,39 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
       Timber.e(e, "Error closing SDK connection in onDestroy");
     }
 
+    shutdownUsbExecutor();
+
     super.onDestroy();
+  }
+
+  private synchronized ExecutorService getUsbExecutor() {
+    if (usbExecutor == null || usbExecutor.isShutdown()) {
+      usbExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "RsidPreview-Usb");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+      });
+    }
+    return usbExecutor;
+  }
+
+  private synchronized void shutdownUsbExecutor() {
+    if (usbExecutor == null) {
+      return;
+    }
+    usbExecutor.shutdown();
+    try {
+      if (!usbExecutor.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+        usbExecutor.shutdownNow();
+      }
+    }
+    catch (InterruptedException e) {
+      usbExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+    finally {
+      usbExecutor = null;
+    }
   }
 
   @Override
@@ -695,9 +785,14 @@ public abstract class BaseRealSenseIdPreviewFragment extends Fragment
     }
   }
 
+  @Nullable
   private PreviewConfig createPreviewConfig(SerialConfig config) {
     boolean uvcConnectionOpened = SDKWrapper.INSTANCE.openUVCConnection();
     int uvcFileDescriptor = SDKWrapper.INSTANCE.getUVCFileDescriptor();
+    if (!uvcConnectionOpened || uvcFileDescriptor < 0) {
+      Timber.w("UVC unavailable (opened=%b, fd=%d) — skipping preview", uvcConnectionOpened, uvcFileDescriptor);
+      return null;
+    }
 
     PreviewConfig previewConfig = new PreviewConfig();
     // Set RAW10 - Only when Full Dump is enabled.

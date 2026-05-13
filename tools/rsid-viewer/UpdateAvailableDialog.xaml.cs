@@ -19,12 +19,20 @@ namespace rsid_wrapper_csharp
 {
     public class ReleaseInfo
     {
-        public ulong sw_version;
-        public ulong fw_version;
-        public string sw_version_str;
-        public string fw_version_str;
+        public string host_ver;
+        public string fw_ver;
         public string release_url;
         public string release_notes_url;
+        public bool fw_known = true;
+
+        // Parse a dotted version string for component-wise comparison. Missing build/revision are
+        // normalized to 0 so "9.16.0" and "9.16.0.0" compare equal. Throws on malformed input.
+        public static Version ParseVersion(string label, string versionStr)
+        {
+            if (!Version.TryParse(versionStr, out var v))
+                throw new FormatException($"Invalid {label} version '{versionStr}'");
+            return new Version(v.Major, v.Minor, Math.Max(v.Build, 0), Math.Max(v.Revision, 0));
+        }
     }
 
     public partial class UpdateAvailableDialog : Window
@@ -32,31 +40,35 @@ namespace rsid_wrapper_csharp
         public UpdateAvailableDialog(ReleaseInfo localInfo, ReleaseInfo remoteInfo)
         {
             this.Owner = Application.Current.MainWindow;
-            InitializeComponent();            
-            var updateAvailable = (remoteInfo.sw_version > localInfo.sw_version) || (remoteInfo.fw_version > localInfo.fw_version);            
+            InitializeComponent();
+
+            var fwVisible = localInfo.fw_known && remoteInfo.fw_known;
+            var hostUpdate = ReleaseInfo.ParseVersion("host", remoteInfo.host_ver)
+                           > ReleaseInfo.ParseVersion("host", localInfo.host_ver);
+            var fwUpdate = fwVisible
+                        && ReleaseInfo.ParseVersion("firmware", remoteInfo.fw_ver)
+                         > ReleaseInfo.ParseVersion("firmware", localInfo.fw_ver);
+            var updateAvailable = hostUpdate || fwUpdate;
             MainTitle.Text = updateAvailable ? "Update available" : "Software is up to date";
 
-            if (remoteInfo.sw_version > localInfo.sw_version)
-            {
-                SoftwareUpdateInfo.Text = $"{localInfo.sw_version_str} => {remoteInfo.sw_version_str}";
-            }
-            else
-            {
-                SoftwareUpdateInfo.Text = $"{localInfo.sw_version_str} (up to date)";
-            }
+            SoftwareUpdateInfo.Text = hostUpdate
+                ? $"{localInfo.host_ver} => {remoteInfo.host_ver}"
+                : $"{localInfo.host_ver} (up to date)";
 
-            if (remoteInfo.fw_version > localInfo.fw_version)
+            if (fwVisible)
             {
-                FirmwareUpdateInfo.Text = $"{localInfo.fw_version_str} => {remoteInfo.fw_version_str}";
+                FirmwareUpdateInfo.Text = fwUpdate
+                    ? $"{localInfo.fw_ver} => {remoteInfo.fw_ver}"
+                    : $"{localInfo.fw_ver} (up to date)";
             }
             else
             {
-                FirmwareUpdateInfo.Text = $"{localInfo.fw_version_str} (up to date)";
+                FirmwareUpdateTitle.Visibility = Visibility.Collapsed;
+                FirmwareUpdateInfo.Visibility = Visibility.Collapsed;
             }
 
             UpdateUrlLink.NavigateUri = new Uri(remoteInfo.release_url);
             ReleaseNotesLink.NavigateUri = new Uri(remoteInfo.release_notes_url);
-
         }
 
         private void OKButton_Click(object sender, RoutedEventArgs e)

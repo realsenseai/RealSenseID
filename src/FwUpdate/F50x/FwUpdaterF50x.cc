@@ -24,7 +24,7 @@ namespace FwUpdateF50x
 static const char* LOG_TAG = "FwUpdaterF50x";
 static constexpr long NORMAL_BAUD_RATE = 115200;
 static const char* MODULE_OPFW = "OPFW";
-static const char* MODULE_RECOG = "RECOG";
+static const char* MODULE_FEATURES = "FEATURES";
 
 static bool DoesFileExist(const char* path)
 {
@@ -58,7 +58,7 @@ bool FwUpdaterF50x::ExtractFwInformation(const char* binPath, std::string& outFw
             {
                 outFwVersion = module.version;
             }
-            else if (module.name == MODULE_RECOG)
+            else if (module.name == MODULE_FEATURES)
             {
                 outRecognitionVersion = module.version;
             }

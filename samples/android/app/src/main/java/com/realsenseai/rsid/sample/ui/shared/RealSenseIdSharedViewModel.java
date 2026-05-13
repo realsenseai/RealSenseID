@@ -41,6 +41,7 @@ public class RealSenseIdSharedViewModel extends ViewModel {
   // Additional shared state
   private final MutableLiveData<Boolean> isOperationInProgress = new MutableLiveData<>();
   private final MutableLiveData<Boolean> isCompatibilityCheckRunning = new MutableLiveData<>(false);
+  private final MutableLiveData<Boolean> oneToOneMode = new MutableLiveData<>();
   // List of callbacks to notify when device is attached
   private final List<DeviceAttachmentCallback> deviceAttachmentCallbacks = new ArrayList<>();
   // Background executor for settings loading
@@ -55,6 +56,7 @@ public class RealSenseIdSharedViewModel extends ViewModel {
     deviceInfo.setValue("");
     isDeviceCompatible.setValue(false);
     isOperationInProgress.setValue(false);
+    oneToOneMode.setValue(false);
 
     Timber.d("RealSenseIdSharedViewModel initialized");
   }
@@ -245,6 +247,20 @@ public class RealSenseIdSharedViewModel extends ViewModel {
     }
   }
 
+  /**
+   * Reset compatibility to "unverified" (null). Use this when the existing verdict is no longer
+   * valid but we haven't determined a new one — e.g. after a firmware flash, where the new
+   * firmware's compatibility is unknown until the post-reboot {@code checkCompatibility} runs.
+   * Distinct from {@link #setDeviceCompatible}{@code (false)}, which means "we determined the
+   * device is incompatible".
+   */
+  public void clearDeviceCompatibility() {
+    if (isDeviceCompatible.getValue() != null) {
+      Timber.d("Device compatibility cleared (unverified)");
+      isDeviceCompatible.setValue(null);
+    }
+  }
+
   public boolean isCurrentDeviceCompatible() {
     Boolean compatible = isDeviceCompatible.getValue();
     return compatible != null && compatible;
@@ -275,6 +291,25 @@ public class RealSenseIdSharedViewModel extends ViewModel {
 
   public void setCompatibilityCheckRunning(boolean running) {
     isCompatibilityCheckRunning.postValue(running);
+  }
+
+  // One-to-One Mode Methods
+  @NonNull
+  public LiveData<Boolean> getOneToOneMode() {
+    return oneToOneMode;
+  }
+
+  public void setOneToOneMode(boolean enabled) {
+    Boolean currentMode = oneToOneMode.getValue();
+    if (currentMode == null || currentMode != enabled) {
+      Timber.d("One-to-one mode changed to: %s", enabled);
+      oneToOneMode.setValue(enabled);
+    }
+  }
+
+  public boolean isOneToOneModeEnabled() {
+    Boolean enabled = oneToOneMode.getValue();
+    return enabled != null && enabled;
   }
 
   // Utility Methods
@@ -483,9 +518,10 @@ public class RealSenseIdSharedViewModel extends ViewModel {
       }
     }
     finally {
-      // Release the authenticator before marking settings as loaded, because that
-      // triggers callbacks (e.g. compatibility check) that open their own connection.
-      // The device is not thread-safe so only one connection may be active at a time.
+      // Release the authenticator (the native handle) before marking settings as loaded — the
+      // callbacks fired by markDeviceSettingsAsLoaded build their own native handles, and only one
+      // can be Connected to the device at a time. The CDC pipe stays open: SDKWrapper caches it
+      // across operations so subsequent fragments (firmware, users, preview) start fast.
       if (authenticator != null) {
         try {
           authenticator.Disconnect();
@@ -495,7 +531,6 @@ public class RealSenseIdSharedViewModel extends ViewModel {
           Timber.w(e, "Error disconnecting authenticator after settings load");
         }
       }
-      SDKWrapper.INSTANCE.closeConnection();
 
       // Mark settings as loaded — this triggers device attachment callbacks
       markDeviceSettingsAsLoaded();

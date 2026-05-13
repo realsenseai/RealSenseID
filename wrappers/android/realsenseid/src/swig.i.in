@@ -28,6 +28,8 @@ static JNIEnv *JNU_GetEnv() {
 %}
 
 %{
+    #cmakedefine RSID_ONE2ONE
+
     #include "RealSenseID/RealSenseIDExports.h"
     #include "RealSenseID/SerialConfig.h"
     #include "RealSenseID/DeviceConfig.h"
@@ -55,6 +57,7 @@ static JNIEnv *JNU_GetEnv() {
     using namespace RealSenseID;
 %}
 
+#cmakedefine RSID_ONE2ONE
 
 %include <stl.i>
 %include <stdint.i>
@@ -172,8 +175,10 @@ CALLBACK_METHOD(PreviewImageReadyCallback, OnSnapshotImageReady)
 %apply std::string& OUTPUT { std::string& outRecognitionVersion }
 %apply std::string& OUTPUT { std::string& serial }
 %apply std::string& OUTPUT { std::string& log }
+%apply std::string& OUTPUT { std::string& user_id }   // AuthenticateImageOneToOne
 %apply float& OUTPUT { float& soc }         // GetTemperature
 %apply float& OUTPUT { float& board }       // GetTemperature
+%apply short& OUTPUT { short& score }       // AuthenticateImageOneToOne
 
 %typemap(jni) char **STRING_IN_OUT "jobjectArray"
 %typemap(jtype) char **STRING_IN_OUT "String[]"
@@ -337,6 +342,32 @@ JAVA_TYPE_MAP(uint8_t, Byte)
 %include "@RealSenseID_HEADERS_FOLDER@/Version.h"
 using namespace RealSenseID;
 
+// Expose Inference::SetAssetManager to Java.
+// Raw JNI function — receives Java AssetManager, converts to native AAssetManager*, passes to Inference.
+%{
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
+
+namespace RealSenseID { namespace Pipeline { class Inference { public: static void SetAssetManager(void*); }; } }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_realsenseai_rsid_api_RealSenseIDJNI_SetAssetManager(JNIEnv *env, jclass /*cls*/, jobject assetManager) {
+    AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
+    RealSenseID::Pipeline::Inference::SetAssetManager(mgr);
+}
+%}
+
+// Add native declaration to the JNI intermediary class
+%pragma(java) jniclasscode=%{
+  public static native void SetAssetManager(Object assetManager);
+%}
+
+// Add public method to the module class
+%pragma(java) modulecode=%{
+  public static void SetAssetManager(android.content.res.AssetManager assetManager) {
+    RealSenseIDJNI.SetAssetManager(assetManager);
+  }
+%}
 
 %extend RealSenseID::Image {
 

@@ -19,7 +19,7 @@ def on_persons(persons, timestamp, status):
         _start_time = time.time()
     print(f"detected {len(persons)} person(s) (ts={timestamp}, status={status})")
     for i, p in enumerate(persons):
-        print(f"  [{i}] id={p.id}  x={p.x} y={p.y} {p.w}x{p.h}  distance={p.distance}")
+        print(f"  [{i}] id={p.id}  x={p.x} y={p.y} {p.w}x{p.h}  distance={p.distance}  score={p.score:.3f}")
     if time.time() - _start_time >= DURATION_SECONDS:
         print(f"Stopping after {DURATION_SECONDS} seconds.")
         return False

@@ -42,14 +42,29 @@ if (RSID_PREVIEW)
     add_executable(preview-cpp-sample preview.cc)
     target_link_libraries(preview-cpp-sample PRIVATE rsid)
     set_target_properties(preview-cpp-sample PROPERTIES FOLDER "samples/cpp")
-    # snapshot preview
-    if(RSID_SECURE)
-        add_executable(preview-snapshot-cpp-sample preview_snapshot.cc secure_mode_helper.cc secure_mode_helper.h)
-        target_link_libraries(preview-snapshot-cpp-sample PRIVATE rsid mbedtls)
-    else() # secure mode
+
+    if(NOT RSID_SECURE)
+        # detect face from preview
+        add_executable(host-detect-face-cpp-sample host-detect-face.cc)
+        target_link_libraries(host-detect-face-cpp-sample PRIVATE rsid)
+        set_target_properties(host-detect-face-cpp-sample PROPERTIES
+            FOLDER "samples/cpp"
+            VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:host-detect-face-cpp-sample>"
+        )
+        
+        # multi-camera
+        add_executable(multi-camera-cpp-sample multi-camera.cc)
+        target_link_libraries(multi-camera-cpp-sample PRIVATE rsid)
+        set_target_properties(multi-camera-cpp-sample PROPERTIES FOLDER "samples/cpp")
+
+        # snapshot preview
         add_executable(preview-snapshot-cpp-sample preview.cc)
         target_link_libraries(preview-snapshot-cpp-sample PRIVATE rsid)
+        set_target_properties(preview-snapshot-cpp-sample PROPERTIES FOLDER "samples/cpp")
+    else()
+        # snapshot preview
+        add_executable(preview-snapshot-cpp-sample preview_snapshot.cc secure_mode_helper.cc secure_mode_helper.h)
+        target_link_libraries(preview-snapshot-cpp-sample PRIVATE rsid mbedtls)
+        set_target_properties(preview-snapshot-cpp-sample PROPERTIES FOLDER "samples/cpp")
     endif()
-    target_link_libraries(preview-snapshot-cpp-sample PRIVATE rsid)
-    set_target_properties(preview-snapshot-cpp-sample PROPERTIES FOLDER "samples/cpp")   
 endif()

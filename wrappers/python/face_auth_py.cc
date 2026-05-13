@@ -664,12 +664,13 @@ void init_face_authenticator(pybind11::module& m)
         .def_readwrite("id", &PersonRect::id)
         .def_readwrite("distance", &PersonRect::distance)
         .def_readwrite("body_part", &PersonRect::body_part)
+        .def_readwrite("score", &PersonRect::score)
 
         .def("__repr__", [](const PersonRect& p) {
             const std::string part = py::str(py::cast(p.body_part).attr("name"));
             std::ostringstream oss;
             oss << "<rsid_py.PersonRect id=" << p.id << " x=" << p.x << " y=" << p.y << " w=" << p.w << " h=" << p.h
-                << " body_part=" << part << " distance=" << p.distance << '>';
+                << " body_part=" << part << " distance=" << p.distance << " score=" << p.score << '>';
             return oss.str();
         });
 
@@ -705,11 +706,6 @@ void init_face_authenticator(pybind11::module& m)
         .value("Medium", DeviceConfig::SecurityLevel::Medium)
         .value("Low", DeviceConfig::SecurityLevel::Low);
 
-    py::enum_<DeviceConfig::MatcherConfidenceLevel>(m, "MatcherConfidenceLevel")
-        .value("High", DeviceConfig::MatcherConfidenceLevel::High)
-        .value("Medium", DeviceConfig::MatcherConfidenceLevel::Medium)
-        .value("Low", DeviceConfig::MatcherConfidenceLevel::Low);
-
     py::enum_<DeviceConfig::AlgoFlow>(m, "AlgoFlow")
         .value("All", DeviceConfig::AlgoFlow::All)
         .value("FaceDetectionOnly", DeviceConfig::AlgoFlow::FaceDetectionOnly)
@@ -730,12 +726,6 @@ void init_face_authenticator(pybind11::module& m)
         .value("None", DeviceConfig::FrontalFacePolicy::None)
         .value("Moderate", DeviceConfig::FrontalFacePolicy::Moderate)
         .value("Strict", DeviceConfig::FrontalFacePolicy::Strict);
-
-    py::enum_<DeviceConfig::DistanceLimit>(m, "DistanceLimit")
-        .value("NoLimit", DeviceConfig::DistanceLimit::NoLimit)
-        .value("Short", DeviceConfig::DistanceLimit::Short)
-        .value("Mid", DeviceConfig::DistanceLimit::Mid)
-        .value("Long", DeviceConfig::DistanceLimit::Long);
 
     py::enum_<DeviceConfig::PersonMotionMode>(m, "PersonMotionMode")
         .value("Static", DeviceConfig::PersonMotionMode::Static)
@@ -761,13 +751,12 @@ void init_face_authenticator(pybind11::module& m)
         .def_readwrite("algo_flow", &DeviceConfig::algo_flow)
         .def_readwrite("face_selection_policy", &DeviceConfig::face_selection_policy)
         .def_readwrite("dump_mode", &DeviceConfig::dump_mode)
-        .def_readwrite("matcher_confidence_level", &DeviceConfig::matcher_confidence_level)
         .def_readwrite("max_spoofs", &DeviceConfig::max_spoofs)
         .def_readwrite("auth_gpio_auth_toggling", &DeviceConfig::gpio_auth_toggling)
         .def_readwrite("frontal_face_policy", &DeviceConfig::frontal_face_policy)
         .def_readwrite("manual_exposure_time_us", &DeviceConfig::manual_exposure_time_us)
         .def_readwrite("manual_gain", &DeviceConfig::manual_gain)
-        .def_readwrite("distance_limit", &DeviceConfig::distance_limit)
+        .def_readwrite("distance_limit_cm", &DeviceConfig::distance_limit_cm)
         .def_readwrite("person_motion_mode", &DeviceConfig::person_motion_mode)
         .def_readwrite("match_thresh", &DeviceConfig::match_thresh)
         .def_readwrite("rect_enable", &DeviceConfig::rect_enable)
@@ -795,14 +784,13 @@ void init_face_authenticator(pybind11::module& m)
             oss << "<rsid_py.DeviceConfig "
                 << "camera_rotation=" << cfg.camera_rotation << ", "
                 << "security_level=" << cfg.security_level << ", "
-                << "matcher_confidence_level=" << cfg.matcher_confidence_level << ", "
                 << "algo_flow=" << cfg.algo_flow << ", "
                 << "face_selection_policy=" << cfg.face_selection_policy << ", "
                 << "dump_mode=" << cfg.dump_mode << ", "
                 << "max_spoofs=" << static_cast<unsigned>(cfg.max_spoofs) << ", "
                 << "auth_gpio_auth_toggling = " << cfg.gpio_auth_toggling << ", "
                 << "frontal_face_policy = " << cfg.frontal_face_policy << ", "
-                << "distance_limit = " << cfg.distance_limit << ", "
+                << "distance_limit_cm = " << static_cast<int>(cfg.distance_limit_cm) << ", "
                 << "person_motion_mode = " << static_cast<int>(cfg.person_motion_mode) << ", "
                 << "match_thresh = " << cfg.match_thresh << ", "
                 << "rect_enable = " << static_cast<unsigned>(cfg.rect_enable) << ", "
@@ -991,7 +979,9 @@ void init_face_authenticator(pybind11::module& m)
                 return self.EnrollImage(user_id.c_str(), buffer.data(), width, height);
             },
             py::arg("user_id"), py::arg("buffer"), py::arg("width"), py::arg("height"),
-            py::doc("Enroll with image. Buffer should be bgr24"), py::call_guard<py::gil_scoped_release>())
+            py::doc("Enroll with image. Buffer should be bgr24. The image must contain exactly one face, "
+                    "and the enrolled face width and height must each be at least 144 pixels."),
+            py::call_guard<py::gil_scoped_release>())
         .def(
             "extract_image_faceprints_for_enroll",
             [&](FaceAuthenticator& self, const std::vector<unsigned char>& buffer, int width, int height) {
@@ -1001,9 +991,51 @@ void init_face_authenticator(pybind11::module& m)
                     throw std::runtime_error(RealSenseID::Description(status));
                 return fp.data;
             },
-            py::arg("buffer"), py::arg("width"), py::arg("height"), py::doc("Enroll with image. Buffer should be bgr24"),
+            py::arg("buffer"), py::arg("width"), py::arg("height"),
+            py::doc("Extract faceprints from image for enrollment. Buffer should be bgr24. The image must contain "
+                    "exactly one face, and the enrolled face width and height must each be at least 144 pixels."),
             py::call_guard<py::gil_scoped_release>())
+        .def(
+            "enroll_image_one_to_one",
+            [](FaceAuthenticator& self, const std::string& user_id, const std::vector<unsigned char>& buffer, int width, int height) {
+                return self.EnrollImageOneToOne(user_id.c_str(), buffer.data(), width, height);
+            },
+            py::arg("user_id"), py::arg("buffer"), py::arg("width"), py::arg("height"),
+            py::doc("Enroll for one-to-one auth using an image. Buffer should be bgr24"),
+            py::call_guard<py::gil_scoped_release>())
+        .def(
+            "authenticate_image_one_to_one",
+            // Cannot use py::call_guard<py::gil_scoped_release> here because the return
+            // value is py::make_tuple which creates Python objects — that requires the GIL.
+            // Instead, release the GIL only for the C++ call and reacquire before make_tuple.
+            [](FaceAuthenticator& self, const std::vector<unsigned char>& buffer, int width, int height) {
+                std::string user_id;
+                short score = 0;
+                AuthenticateStatus status;
+                {
+                    py::gil_scoped_release release;
+                    status = self.AuthenticateImageOneToOne(buffer.data(), width, height, user_id, score);
+                }
+                return py::make_tuple(status, user_id, score);
+            },
+            py::arg("buffer"), py::arg("width"), py::arg("height"),
+            py::doc("Authenticate one-to-one using an image. Buffer should be bgr24. Returns (status, user_id, score)"))
 
+        .def(
+            "authenticate_one_to_one",
+            [](FaceAuthenticator& self, AuthStatusClbkFun& fn1, AuthHintClbkFun& fn2, FaceDetectedClbkFun& fn3,
+               LandmarksDetectedClbkFun& fn4, FaceDistancesClbkFun& fn5, PersonDetectedClbkFun& fn6, PersonPoseClbkFun& fn7,
+               FaceCroppedImageClbkFun& fn8, BarcodeClbkFun& fn9) {
+                AuthCallbackPy clbk {fn1, fn2, fn3, fn4, fn5, fn6, fn7, fn8, fn9};
+                RSID_THROW_ON_ERROR(self.AuthenticateOneToOne(clbk));
+            },
+            py::arg("on_result") = AuthStatusClbkFun {}, py::arg("on_hint") = AuthHintClbkFun {},
+            py::arg("on_faces") = FaceDetectedClbkFun {}, py::arg("on_landmarks") = LandmarksDetectedClbkFun {},
+            py::arg("on_face_distances") = FaceDistancesClbkFun {},
+            py::arg("on_person_detect") = PersonDetectedClbkFun {}, py::arg("on_person_pose") = PersonPoseClbkFun {},
+            py::arg("on_face_cropped_image") = FaceCroppedImageClbkFun {}, py::arg("on_barcode") = BarcodeClbkFun {},
+            py::doc("Authenticate one-to-one using the device camera against the last enrolled one-to-one user"),
+            py::call_guard<py::gil_scoped_release>())
 
         .def(
             "authenticate",
@@ -1165,7 +1197,7 @@ void init_face_authenticator(pybind11::module& m)
         .def(
             "match_faceprints",
             [](FaceAuthenticator& self, ExtractedFaceprintsElement& new_faceprints, const DBFaceprintsElement& existing_faceprints,
-               DBFaceprintsElement& updated_faceprints, const DeviceConfig::MatcherConfidenceLevel& confidence_level) {
+               DBFaceprintsElement& updated_faceprints) {
                 // wrap with needed classes
                 MatchElement match_element;
                 match_element.data = new_faceprints;
@@ -1174,29 +1206,13 @@ void init_face_authenticator(pybind11::module& m)
                 existing.data = existing_faceprints;
 
                 Faceprints updated;
-                MatchResultHost match_result;
-
-                switch (confidence_level)
-                {
-                case DeviceConfig::MatcherConfidenceLevel::High:
-                    match_result =
-                        self.MatchFaceprints(match_element, existing, updated, ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High);
-                    break;
-                case DeviceConfig::MatcherConfidenceLevel::Medium:
-                    match_result =
-                        self.MatchFaceprints(match_element, existing, updated, ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_Medium);
-                    break;
-                case DeviceConfig::MatcherConfidenceLevel::Low:
-                    match_result =
-                        self.MatchFaceprints(match_element, existing, updated, ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_Low);
-                    break;
-                }
+                auto match_result = self.MatchFaceprints(match_element, existing, updated);
 
                 updated_faceprints = updated.data;
                 return match_result;
             },
             py::arg("new_faceprints"), py::arg("existing_faceprints"), py::arg("updated_faceprints"),
-            py::arg("confidence_level") = DeviceConfig::MatcherConfidenceLevel::High, py::call_guard<py::gil_scoped_release>());
+            py::call_guard<py::gil_scoped_release>());
 }
 
 // clang-format on

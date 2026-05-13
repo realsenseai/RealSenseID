@@ -306,21 +306,6 @@ const char* Description(DeviceConfig::SecurityLevel level)
     }
 }
 
-const char* Description(DeviceConfig::MatcherConfidenceLevel matcher_confidence_level)
-{
-    switch (matcher_confidence_level)
-    {
-    case DeviceConfig::MatcherConfidenceLevel::High:
-        return "High";
-    case DeviceConfig::MatcherConfidenceLevel::Medium:
-        return "Medium";
-    case DeviceConfig::MatcherConfidenceLevel::Low:
-        return "Low";
-    default:
-        return "Unknown value";
-    }
-}
-
 const char* Description(DeviceConfig::FaceSelectionPolicy policy)
 {
     switch (policy)
@@ -362,23 +347,6 @@ const char* Description(DeviceConfig::FrontalFacePolicy policy)
         return "Moderate";
     case DeviceConfig::FrontalFacePolicy::Strict:
         return "Strict";
-    default:
-        return "Unknown value";
-    }
-}
-
-const char* Description(DeviceConfig::DistanceLimit limit)
-{
-    switch (limit)
-    {
-    case DeviceConfig::DistanceLimit::NoLimit:
-        return "NoLimit";
-    case DeviceConfig::DistanceLimit::Short:
-        return "Short";
-    case DeviceConfig::DistanceLimit::Mid:
-        return "Mid";
-    case DeviceConfig::DistanceLimit::Long:
-        return "Long";
     default:
         return "Unknown value";
     }

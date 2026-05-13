@@ -210,13 +210,20 @@
                                     <ColumnDefinition Width="Auto" SharedSizeGroup="LabelColumn"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="DistanceLimitLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Distance Limit" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
-                                <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <RadioButton x:Name="NoDistanceLimit" Click="CheckCanApply" Content="No Limit" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="True" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
-                                    <RadioButton x:Name="DistanceLimit70cm" Click="CheckCanApply" Content="70cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
-                                    <RadioButton x:Name="DistanceLimit100cm" Click="CheckCanApply" Content="100cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
-                                    <RadioButton x:Name="DistanceLimit130cm" Click="CheckCanApply" Content="130cm" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" IsChecked="False" Style="{DynamicResource RadioButtonStyle1}" FontSize="14" Margin="0,0,16,0"/>
-                                </WrapPanel>
+                                <TextBlock x:Name="DistanceLimitLabel" HorizontalAlignment="Left" TextWrapping="Wrap" Text="Distance Limit (cm)" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Slider x:Name="DistanceLimitSlider" Width="220" Minimum="0" Maximum="150" SmallChange="1" LargeChange="10" TickFrequency="25" TickPlacement="BottomRight" IsSnapToTickEnabled="False" ValueChanged="CheckCanApply" VerticalAlignment="Center" ToolTip="0 = no limit, 1-150 = max distance in cm">
+                                        <Slider.Resources>
+                                            <Style TargetType="TickBar">
+                                                <Setter Property="Fill" Value="{DynamicResource PrimaryText}"/>
+                                                <Setter Property="Height" Value="8"/>
+                                                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                                            </Style>
+                                        </Slider.Resources>
+                                    </Slider>
+                                    <TextBlock VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="14" FontWeight="Bold" Margin="12,0,8,0" MinWidth="32" TextAlignment="Right" Text="{Binding ElementName=DistanceLimitSlider, Path=Value, StringFormat={}{0:0}}"/>
+                                    <TextBlock Text="(0 = no limit)" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryText}" FontSize="12"/>
+                                </StackPanel>
                             </Grid>
 
                             <!-- Frontal face policy -->
@@ -256,7 +263,7 @@
                                 <TextBlock  HorizontalAlignment="Left" TextWrapping="Wrap" Text="Max Spoofs" VerticalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource PrimaryText}" FontSize="14" Margin="0,0,16,0"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <TextBox x:Name="MaxSpoofs" FontSize="14" Width="60" VerticalAlignment="Top" HorizontalAlignment="Left"  TextAlignment="Center" BorderThickness="0,1" BorderBrush="{DynamicResource SecondaryColorBrush}" Foreground="{DynamicResource PrimaryText}" />
-                                    <TextBlock Margin="10,0,0,0" Text="max consecutive spoofs (0=nolimit)" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
+                                    <TextBlock Margin="10,0,0,0" Text="max consecutive spoofs (0 = no limit, max 255)" HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="{DynamicResource PrimaryText}" FontSize="12" />
                                 </StackPanel>
                             </Grid>
 
@@ -508,7 +515,7 @@
                                 <Label Content="Force update" VerticalAlignment="Center"/>
                             </WrapPanel>
                             <StackPanel Grid.Row="1" Grid.Column="1" Margin="106,2,0,0">
-                                <TextBlock x:Name="CheckForUpdatesLink" Visibility="Collapsed">
+                                <TextBlock x:Name="CheckForUpdatesLink" Visibility="Visible">
                                     <Hyperlink Click="CheckForUpdates_Click" FontSize="11">Check For Updates</Hyperlink>
                                 </TextBlock>
                                 <ProgressBar x:Name="CheckUpdatesBar" Foreground="{DynamicResource ProgressBrush }" IsIndeterminate="True" Visibility="Collapsed" Width="90" Height="11" HorizontalAlignment="Left"/>

@@ -24,6 +24,7 @@ android {
                     '-DRSID_TOOLS=OFF',
                     '-DCMAKE_VERBOSE_MAKEFILE=ON',
                     '-DRSID_PREVIEW=ON',
+                    '-DRSID_PIPELINE=ON',
                     '-DANDROID_ARM_NEON=ON',
                     '-DANDROID_USE_LEGACY_TOOLCHAIN_FILE=OFF',
                     '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
@@ -36,6 +37,16 @@ android {
     }
 
     namespace 'com.realsenseai.rsid'
+
+    aaptOptions {
+        noCompress 'onnx' // Keep model uncompressed so AAsset_getBuffer can mmap it
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += ["${project.projectDir}/../../../models"]
+        }
+    }
 
     flavorDimensions "default"
     productFlavors {

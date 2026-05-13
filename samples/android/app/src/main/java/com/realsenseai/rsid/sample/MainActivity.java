@@ -11,8 +11,6 @@ import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -33,11 +31,15 @@ import com.permissionx.guolindev.PermissionX;
 import com.realsenseai.rsid.api.DeviceType;
 import com.realsenseai.rsid.sample.databinding.ActivityMainBinding;
 import com.realsenseai.rsid.sample.databinding.NavHeaderMainBinding;
+import com.realsenseai.rsid.sample.ui.firmware.FirmwareViewModel;
 import com.realsenseai.rsid.sample.ui.shared.RealSenseIdSharedViewModel;
+import com.realsenseai.rsid.sample.ui.users.UserListViewModel;
 import com.realsenseai.rsid.sample.util.SDKWrapper;
 import com.realsenseai.rsid.sample.util.SnackbarHelper;
 import com.realsenseai.rsid.sample.util.UsbDevicesReceiver;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.opencv.android.OpenCVLoader;
 import timber.log.Timber;
 
@@ -86,12 +88,12 @@ public class MainActivity extends AppCompatActivity
 
     ExecutorService initExecutor = Executors.newSingleThreadExecutor();
     initExecutor.execute(() -> {
-      System.loadLibrary("RealSenseIDSwigJNI");
       boolean opencvLoaded = OpenCVLoader.initLocal();
       mainHandler.post(() -> {
         if (opencvLoaded) {
           Timber.i("OpenCV loaded successfully");
-        } else {
+        }
+        else {
           Timber.e("OpenCV initialization failed!");
           SnackbarHelper.showSnackbarMessage(binding.getRoot(), "OpenCV initialization failed!", this);
         }
@@ -141,6 +143,30 @@ public class MainActivity extends AppCompatActivity
     NavHostFragment navHostFragment = (NavHostFragment)getSupportFragmentManager().findFragmentById(R.id.nav_host_fragment_content_main);
     assert navHostFragment != null;
     NavController navController = navHostFragment.getNavController();
+
+    // Listen for navigation changes to show/hide rotate and one-to-one switch
+    navController.addOnDestinationChangedListener((controller, destination, arguments) -> {
+      if (destination.getId() == R.id.nav_preview) {
+        binding.appBarMain.buttonRotate.setVisibility(View.VISIBLE);
+        binding.appBarMain.switchOneToOne.setVisibility(View.VISIBLE);
+      }
+      else {
+        binding.appBarMain.buttonRotate.setVisibility(View.GONE);
+        binding.appBarMain.switchOneToOne.setVisibility(View.GONE);
+      }
+    });
+
+    // Setup one-to-one switch listener
+    binding.appBarMain.switchOneToOne.setOnCheckedChangeListener((buttonView, isChecked) -> {
+      sharedViewModel.setOneToOneMode(isChecked);
+    });
+
+    // Observe one-to-one mode changes to update switch state
+    sharedViewModel.getOneToOneMode().observe(this, enabled -> {
+      if (binding.appBarMain.switchOneToOne.isChecked() != enabled) {
+        binding.appBarMain.switchOneToOne.setChecked(enabled);
+      }
+    });
 
     NavigationView navigationView = binding.navView;
     if (navigationView != null) {
@@ -261,6 +287,8 @@ public class MainActivity extends AppCompatActivity
 
   @Override
   public void onDeviceDetached(@Nullable UsbDevice usbDevice) {
+    new ViewModelProvider(this).get(UserListViewModel.class).markDeviceUsersStale();
+    new ViewModelProvider(this).get(FirmwareViewModel.class).markFirmwareInfoStale();
     sharedViewModel.handleDeviceDetached();
     binding.appBarMain.toolbarIcon.setImageResource(R.drawable.ic_f4xx_disc);
     SDKWrapper.INSTANCE.closeUVCConnection();
@@ -269,6 +297,8 @@ public class MainActivity extends AppCompatActivity
 
   @Override
   public void onDeviceAttached(@Nullable UsbDevice usbDevice) {
+    new ViewModelProvider(this).get(UserListViewModel.class).markDeviceUsersStale();
+    new ViewModelProvider(this).get(FirmwareViewModel.class).markFirmwareInfoStale();
     UsbDevicesReceiver usbReceiver = new UsbDevicesReceiver(null);
     DeviceType deviceType = usbReceiver.getAttachedDeviceType(this);
     sharedViewModel.handleDeviceAttached(deviceType);

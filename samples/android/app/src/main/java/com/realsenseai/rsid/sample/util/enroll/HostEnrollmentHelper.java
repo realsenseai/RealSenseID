@@ -101,9 +101,10 @@ public class HostEnrollmentHelper extends EnrollFaceprintsExtractionCallback {
       return;
     }
     else {
-      // This ensures clean auth
-      requireNonNull(authenticator).Disconnect();
-      requireNonNull(authenticator).Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
+      // This ensures clean enrollment
+      authenticator.Cancel();
+      authenticator.Disconnect();
+      authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
     }
 
     if (isDestroyed.get()) {
@@ -208,11 +209,9 @@ public class HostEnrollmentHelper extends EnrollFaceprintsExtractionCallback {
     this.callback = callback;
     resultProcessed = false; // Reset the flag for new enrollment attempt
 
-    authenticator = SDKWrapper.INSTANCE.getAuthenticator();
-    if (isNull(authenticator)) {
-      handleEnrollmentFailure("Error: Reattach camera");
-      return;
-    }
+    authenticator.Cancel();
+    authenticator.Disconnect();
+    authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
 
     try {
       authenticator.ExtractFaceprintsForEnroll(this);
@@ -236,11 +235,9 @@ public class HostEnrollmentHelper extends EnrollFaceprintsExtractionCallback {
     this.name = requireNonNull(name, "Name cannot be null");
     this.callback = callback;
 
-    authenticator = SDKWrapper.INSTANCE.getAuthenticator();
-    if (isNull(authenticator)) {
-      handleEnrollmentFailure("Error: Reattach camera");
-      return;
-    }
+    authenticator.Cancel();
+    authenticator.Disconnect();
+    authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
 
     // Cancel any existing image enrollment task
     cancelImageEnrollmentTask();

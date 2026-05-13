@@ -67,17 +67,17 @@ private:
 };
 } // namespace RealSenseID
 
-#define LOG_TRACE(...)         Logger::Instance().Trace(__VA_ARGS__)
-#define LOG_DEBUG(...)         Logger::Instance().Debug(__VA_ARGS__)
-#define LOG_INFO(...)          Logger::Instance().Info(__VA_ARGS__)
-#define LOG_WARNING(...)       Logger::Instance().Warning(__VA_ARGS__)
-#define LOG_ERROR(...)         Logger::Instance().Error(__VA_ARGS__)
-#define LOG_CRITICAL(...)      Logger::Instance().Critical(__VA_ARGS__)
-#define LOG_EXCEPTION(tag, ex) Logger::Instance().Error(tag, "%s", ex.what())
+#define LOG_TRACE(...)         RealSenseID::Logger::Instance().Trace(__VA_ARGS__)
+#define LOG_DEBUG(...)         RealSenseID::Logger::Instance().Debug(__VA_ARGS__)
+#define LOG_INFO(...)          RealSenseID::Logger::Instance().Info(__VA_ARGS__)
+#define LOG_WARNING(...)       RealSenseID::Logger::Instance().Warning(__VA_ARGS__)
+#define LOG_ERROR(...)         RealSenseID::Logger::Instance().Error(__VA_ARGS__)
+#define LOG_CRITICAL(...)      RealSenseID::Logger::Instance().Critical(__VA_ARGS__)
+#define LOG_EXCEPTION(tag, ex) RealSenseID::Logger::Instance().Error(tag, "%s", ex.what())
 
 
 #ifdef RSID_DEBUG_SERIAL
-#define DEBUG_SERIAL(tag, msg, buf, size) Logger::Instance().DebugBytes(tag, msg, buf, size)
+#define DEBUG_SERIAL(tag, msg, buf, size) RealSenseID::Logger::Instance().DebugBytes(tag, msg, buf, size)
 #else
 #define DEBUG_SERIAL(...) (void)0
 #endif // RSID_DEBUG_SERIAL

@@ -66,6 +66,7 @@ See [SKILL.md](./SKILL.md) for guidance when using this SDK with AI tools.
 - Python
 - C#
 - Android
+- Embedded C (for low power MCU hosts — see [embedded/](embedded/))
 
 ## Building
 
@@ -96,25 +97,27 @@ $ cmake --build . --config Debug
 
 The following options are available for the `cmake` command
 
-| Option               | Default | Description                                                                 |
-| -------------------- | :-----: | :-------------------------------------------------------------------------- |
-| `RSID_DEBUG_CONSOLE` |  `ON`   | Log everything to console                                                   |
-| `RSID_DEBUG_FILE`    |  `OFF`  | Log everything to _rsid_debug.log_ file                                     |
-| `RSID_DEBUG_SERIAL`  |  `OFF`  | Log all serial communication                                                |
-| `RSID_DEBUG_PACKETS` |  `OFF`  | Log packets sent/received over the serial line                              |
-| `RSID_DEBUG_VALUES`  |  `OFF`  | Replace default common values with debug ones                               |
-| `RSID_SAMPLES`       |  `OFF`  | Build samples                                                               |
-| `RSID_TIDY`          |  `OFF`  | Enable clang-tidy                                                           |
-| `RSID_PEDANTIC`      |  `OFF`  | Enable extra compiler warnings                                              |
-| `RSID_PROTECT_STACK` |  `OFF`  | Enable stack protection compiler flags                                      |
-| `RSID_DOXYGEN`       |  `OFF`  | Build doxygen documentation                                                 |
-| `RSID_SECURE`        |  `OFF`  | Enable secure communication with device                                     |
-| `RSID_TOOLS`         |  `ON`   | Build additional tools                                                      |
-| `RSID_PY`            |  `OFF`  | Build Python wrapper                                                        |
-| `RSID_PREVIEW`       |  `OFF`  | Enable preview feature                                                      |
-| `RSID_LIBUVC`        |  `OFF`  | Use libuvc instead of V4L2 for preview (Linux only; forced `ON` on Android) |
-| `RSID_TESTS`         |  `OFF`  | Build unit tests                                                            |
-| `RSID_INSTALL`       |  `OFF`  | Generate the install target and rsidConfig.cmake (not available on Android) |
+| Option               | Default | Description                                                                                                                                                                                                            |
+| -------------------- | :-----: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RSID_DEBUG_CONSOLE` |  `ON`   | Log everything to console                                                                                                                                                                                              |
+| `RSID_DEBUG_FILE`    |  `OFF`  | Log everything to _rsid_debug.log_ file                                                                                                                                                                                |
+| `RSID_DEBUG_SERIAL`  |  `OFF`  | Log all serial communication                                                                                                                                                                                           |
+| `RSID_DEBUG_PACKETS` |  `OFF`  | Log packets sent/received over the serial line                                                                                                                                                                         |
+| `RSID_DEBUG_VALUES`  |  `OFF`  | Replace default common values with debug ones                                                                                                                                                                          |
+| `RSID_SAMPLES`       |  `OFF`  | Build samples                                                                                                                                                                                                          |
+| `RSID_TIDY`          |  `OFF`  | Enable clang-tidy                                                                                                                                                                                                      |
+| `RSID_PEDANTIC`      |  `OFF`  | Enable extra compiler warnings                                                                                                                                                                                         |
+| `RSID_PROTECT_STACK` |  `OFF`  | Enable stack protection compiler flags                                                                                                                                                                                 |
+| `RSID_DOXYGEN`       |  `OFF`  | Build doxygen documentation                                                                                                                                                                                            |
+| `RSID_SECURE`        |  `OFF`  | Enable secure communication with device                                                                                                                                                                                |
+| `RSID_TOOLS`         |  `ON`   | Build additional tools                                                                                                                                                                                                 |
+| `RSID_PY`            |  `OFF`  | Build Python wrapper                                                                                                                                                                                                   |
+| `RSID_PREVIEW`       |  `OFF`  | Enable preview feature                                                                                                                                                                                                 |
+| `RSID_LIBUVC`        |  `OFF`  | Use libuvc instead of V4L2 for preview (Linux only; forced `ON` on Android)                                                                                                                                            |
+| `RSID_PIPELINE`      |  `ON`   | Host-side face detection for image APIs (`EnrollImage`, `EnrollImageOneToOne`, `AuthenticateImageOneToOne`): crops to the face before sending to the device for better performance and accuracy. Requires ONNX Runtime |
+| `RSID_EMBEDDED`      |  `OFF`  | Build the embedded C SDK                                                                                                                                                                                               |
+| `RSID_TESTS`         |  `OFF`  | Build unit tests                                                                                                                                                                                                       |
+| `RSID_INSTALL`       |  `OFF`  | Generate the install target and rsidConfig.cmake (not available on Android)                                                                                                                                            |
 
 ### Linux Post Install
 
@@ -187,6 +190,13 @@ on the host or the server. In this mode the RealSenseID camera is used as a Feat
 The API provides a 'matching' function which predicts whether two faceprints belong to the same person,
 thus enabling the user to scan their database for similar users.
 
+### One-to-One Mode
+
+One-to-One Mode authenticates against a single enrolled user instead of searching the full on-device database.
+Use `EnrollImageOneToOne(user_id, image, ...)` to enroll the target user (each call replaces the previous
+One-to-One user), then `AuthenticateOneToOne(callback)` or `AuthenticateImageOneToOne(image, ...)` to match
+against that user.
+
 ## Project Structure
 
 The SDK is organized into the following directories:
@@ -197,6 +207,7 @@ The SDK is organized into the following directories:
 | [samples/](samples/)                         | Code samples in C++, C, Python, and C#                          |
 | [tools/](tools/)                             | Command-line tools: `rsid-cli`, `rsid-fw-update`, `rsid-viewer` |
 | [wrappers/](wrappers/)                       | Language bindings: C, Python, C#, Android                       |
+| [embedded/](embedded/)                       | C host SDK for low power MCU platforms (STM32, NXP i.MX RT, …)  |
 
 For the full C++ API reference — including `FaceAuthenticator`, `DeviceController`, `Preview`, and `FwUpdater` — see [include/RealSenseID/README.md](include/RealSenseID/README.md).
 

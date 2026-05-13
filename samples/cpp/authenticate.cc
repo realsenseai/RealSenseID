@@ -44,7 +44,8 @@ public:
     {
         for (const auto& person : persons)
         {
-            printf("** Detected person (id %u) %u,%u %ux%u (timestamp %u)\n", person.id, person.x, person.y, person.w, person.h, ts);
+            printf("** Detected person (id %u) %u,%u %ux%u (timestamp %u) score=%.3f\n", person.id, person.x, person.y, person.w, person.h,
+                   ts, person.score);
         }
     }
 

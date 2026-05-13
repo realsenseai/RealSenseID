@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2025 RealSense, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-package com.realsenseai.rsid.sample.ui.dialog;
+package com.realsenseai.rsid.sample.ui.preview;
 
 import static java.util.Objects.isNull;
 import static java.util.Objects.requireNonNull;
@@ -282,6 +282,10 @@ public class UIDialogHelper {
     private final List<ImageFileItem> items;
     private final OnItemClickListener listener;
 
+    interface OnItemClickListener {
+      void onItemClick(Uri uri);
+    }
+
     FileAdapter(List<ImageFileItem> items, OnItemClickListener listener) {
       this.items = items;
       this.listener = listener;
@@ -322,10 +326,6 @@ public class UIDialogHelper {
     @Override
     public int getItemCount() {
       return items.size();
-    }
-
-    interface OnItemClickListener {
-      void onItemClick(Uri uri);
     }
 
     static class FileViewHolder extends RecyclerView.ViewHolder {

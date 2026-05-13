@@ -3,9 +3,6 @@
 
 package com.realsenseai.rsid.sample.util;
 
-import static java.util.Objects.isNull;
-
-import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.MutableLiveData;
@@ -15,78 +12,101 @@ import com.realsenseai.rsid.api.Status;
 import com.realsenseai.rsid.api.StringVector;
 import timber.log.Timber;
 
+/**
+ * Wraps {@link FwUpdater} for the sample app's firmware-flash flow. Owns the lifetime of all
+ * SWIG-allocated native objects via try/finally — every {@code new} of a SWIG type below has a
+ * corresponding {@code delete()} on the cleanup path.
+ *
+ * <p>Exception: {@link FwUpdater.FwCompatibilityInfo} returned from {@link #checkCompatibility}
+ * is owned by the caller, who must call {@code .delete()} when done inspecting it.
+ */
 public class FWUpdateHelper extends FwUpdater.EventHandler {
-  private final Context context;
-  private final String TAG = "FWUpdateHelper";
+
   private final MutableLiveData<Integer> progressUpdate;
   private final FWUpdateCallback callback;
 
-  public FWUpdateHelper(@NonNull Context context,
-                        @NonNull MutableLiveData<Integer> progressUpdate,
+  public FWUpdateHelper(@NonNull MutableLiveData<Integer> progressUpdate,
                         @NonNull FWUpdateCallback callback) {
-    this.context = context;
-    this.callback = callback;
     this.progressUpdate = progressUpdate;
+    this.callback = callback;
   }
 
   @Override
   public void OnProgress(float progress) {
-    Timber.tag(TAG).i(String.valueOf(progress));
-    var intProgress = Math.min((int)(progress * 100), 100);
-    progressUpdate.postValue(intProgress);
-    if (intProgress == 100) {
-      callback.onUpdateSuccess();
+    progressUpdate.postValue(Math.min((int) (progress * 100), 100));
+  }
+
+  /**
+   * Runs the pre-flash compatibility checks (SKU, secure boot, device type, DB version).
+   *
+   * @return The compatibility info, or {@code null} if no serial config is available. Caller
+   *         owns the returned object and must call {@code .delete()} on it.
+   */
+  @Nullable
+  public FwUpdater.FwCompatibilityInfo checkCompatibility(@NonNull DeviceType deviceType,
+                                                          @NonNull String binPath) {
+    var config = SDKWrapper.INSTANCE.getSerialConfig();
+    if (config == null) {
+      return null;
+    }
+
+    FwUpdater updater = new FwUpdater(deviceType);
+    FwUpdater.Settings settings = new FwUpdater.Settings();
+    try {
+      settings.setSerial_config(config);
+      var info = new FwUpdater.FwCompatibilityInfo();
+      updater.CheckCompatibility(settings, binPath, info);
+      return info;
+    }
+    finally {
+      settings.delete();
+      updater.delete();
     }
   }
 
   /**
-   * Runs all pre-flash compatibility checks (SKU, secure boot, device type, DB version).
-   * Returns the FwCompatibilityInfo, or null if the serial config is unavailable.
+   * Flashes the firmware bin at {@code binPath}. Fires exactly one terminal callback —
+   * {@link FWUpdateCallback#onUpdateSuccess()} or {@link FWUpdateCallback#onUpdateFailure(String)}
+   * — after {@code UpdateModules} returns. Progress is reported via the LiveData passed to the
+   * constructor for the duration of the flash.
    */
-  @Nullable
-  public FwUpdater.FwCompatibilityInfo checkCompatibility(DeviceType deviceType, @NonNull String binPath) {
+  public void flashFirmware(@NonNull DeviceType deviceType, @NonNull String binPath) {
     var config = SDKWrapper.INSTANCE.getSerialConfig();
-    if (isNull(config)) {
-      return null;
-    }
-
-    var settings = new FwUpdater.Settings();
-    settings.setSerial_config(config);
-    var updater = new FwUpdater(deviceType);
-    var info = new FwUpdater.FwCompatibilityInfo();
-    updater.CheckCompatibility(settings, binPath, info);
-    updater.delete();
-    settings.delete();
-    return info;
-  }
-
-  public void flashFirmware(DeviceType deviceType, @NonNull String binPath) {
-    var config = SDKWrapper.INSTANCE.getSerialConfig();
-    if (isNull(config)) {
-      this.callback.onUpdateFailure("Unable to acquire serial portal handle.");
+    if (config == null) {
+      callback.onUpdateFailure("Unable to acquire serial port handle.");
       return;
     }
 
-    var settings = new FwUpdater.Settings();
-    settings.setSerial_config(config);
-    var updater = new FwUpdater(deviceType);
-    var outFwVersion = new String[1];
-    var outRecognitionVersion = new String[1];
-    var moduleNames = new StringVector();
-    settings.setForce_full(true);
+    FwUpdater updater = new FwUpdater(deviceType);
+    FwUpdater.Settings settings = new FwUpdater.Settings();
+    StringVector moduleNames = new StringVector();
+    try {
+      settings.setSerial_config(config);
+      settings.setForce_full(true);
 
-    if (updater.ExtractFwInformation(binPath, outFwVersion, outRecognitionVersion, moduleNames)) {
-      var status = updater.UpdateModules(this, settings, binPath);
-      if (status != Status.Ok) {
-        callback.onUpdateFailure("Error: " + status.toString());
-        updater.delete();
-        settings.delete();
+      String[] outFwVersion = new String[1];
+      String[] outRecognitionVersion = new String[1];
+      if (!updater.ExtractFwInformation(binPath, outFwVersion, outRecognitionVersion, moduleNames)) {
+        callback.onUpdateFailure("Error: Unable to extract FW information from bin file.");
+        return;
+      }
+
+      Status status = updater.UpdateModules(this, settings, binPath);
+      if (status == Status.Ok) {
+        callback.onUpdateSuccess();
+      }
+      else {
+        callback.onUpdateFailure("Error: " + status);
       }
     }
-    else {
-      callback.onUpdateFailure("Error: Unable to extract FW information from bin file.");
-      updater.delete();
+    catch (Exception e) {
+      Timber.e(e, "Firmware flash threw");
+      callback.onUpdateFailure("Error: " + e.getMessage());
+    }
+    finally {
+      moduleNames.delete();
       settings.delete();
+      updater.delete();
     }
   }
 

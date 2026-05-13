@@ -108,7 +108,9 @@ public:
 
     /**
      * Enroll a user using an image of his face.
-     * Note: The face should occupy at least 75% of image area
+     * Note:
+     *   - The image must contain exactly one face.
+     *   - The enrolled face width and height must each be at least 144 pixels.
      * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
      * @param[in] buffer bgr24 image buffer of the enrolled user face.
      * @param[in] width image width.
@@ -119,9 +121,11 @@ public:
 
     /**
      * Extract features from RGB image.
-     * Note: The face should occupy at least 75% of image area
+     * Note:
+     *   - The image must contain exactly one face.
+     *   - The enrolled face width and height must each be at least 144 pixels.
      * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
-     * @param[in] buffer bgr24 image buffer of the enrolled user face. Max buffer size is 900KB(i.e. Width x Height x 3)
+     * @param[in] buffer bgr24 image buffer of the enrolled user face.
      * @param[in] width image width.
      * @param[in] height image height.
      * @param[out] pExtractedFaceprints the extracted faceprints from the image.
@@ -257,25 +261,29 @@ public:
      */
     Status Unlock();
 
-#ifdef RSID_ONE2ONE
     /**************************************************************************/
     /************************ One to One Mode Methods *************************/
     /**************************************************************************/
+    // One-to-One mode authenticates only against the last person enrolled via
+    // EnrollImageOneToOne(), rather than searching the entire enrolled user database.
 
     /**
-     * Enroll a user using an image of his face.
+     * Enroll a user for One-to-One authentication using an image of his face.
+     * Only a single user can be enrolled in this mode at a time — calling this again replaces
+     * the previously enrolled One-to-One user.
+     *
      * @param[in] user_id Null terminated C string of ascii chars. Max user id size is MAX_USERID_LENGTH bytes
-     * @param[in] buffer bgr24 image buffer of the enrolled user face.
-     * @param[in] width image width in pixels (valid range 80-10000).
-     * @param[in] height image height in pixels (valid range 80-10000).
+     * @param[in] buffer BGR24 image buffer of the enrolled user face.
+     * @param[in] width image width in pixels (valid range 50-10000).
+     * @param[in] height image height in pixels (valid range 50-10000).
      * @return EnrollStatus (EnrollStatus::Success on success).
      */
     EnrollStatus EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height);
 
     /**
-     * Attempt to authenticate.
+     * Authenticate against the last One-to-One enrolled user only.
      * Starts the authentication procedure, which starts the camera, captures frames and tries to match
-     * the user in front of the camera to the last enrolled user from EnrollImageOneToOne().
+     * the user in front of the camera to the last user enrolled via EnrollImageOneToOne().
      * During the process callbacks will be called to provide information if needed.
      * Once process is done, camera will be closed properly and device will be in ready state.
      *
@@ -285,39 +293,30 @@ public:
     Status AuthenticateOneToOne(AuthenticationCallback& callback);
 
     /**
-     * Attempt to authenticate a user using an image of his face.
+     * Authenticate against the last One-to-One enrolled user using an image.
+     * Matches the face in the provided image against the last user enrolled via EnrollImageOneToOne().
+     *
      * @param[in] buffer bgr24 image buffer of the authenticated user face.
-     * @param[in] width image width in pixels (valid range 80-10000).
-     * @param[in] height image height in pixels (valid range 80-10000).
-     * @param[in] user_id authenticated user in case of success, empty string otherwise.
-     * @param[in] score Matching score result.
+     * @param[in] width image width in pixels (valid range 50-10000).
+     * @param[in] height image height in pixels (valid range 50-10000).
+     * @param[out] user_id authenticated user in case of success, empty string otherwise.
+     * @param[out] score Matching score result.
      * @return AuthenticateStatus (AuthenticateStatus::Success on success).
      */
     AuthenticateStatus AuthenticateImageOneToOne(const unsigned char* buffer, unsigned int width, unsigned int height, std::string& user_id,
                                                  short& score);
 
     /*
-     * Extract faceprints from an image using the host pipeline (no device involved).
-     * @param[in] buffer bgr24 image buffer of the face.
-     * @param[in] width image width in pixels (valid range 80-10000).
-     * @param[in] height image height in pixels (valid range 80-10000).
-     * @param[out] pExtractedFaceprints the extracted faceprints from the image.
-     * @return Status (Status::Ok on success).
-     */
-    Status ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                   ExtractedFaceprints* pExtractedFaceprints);
-
-    /*
      * Find face in an image using the host pipeline (no device involved).
      * @param[in] buffer bgr24 image buffer
-     * @param[in] width image width in pixels (valid range 80-10000).
-     * @param[in] height image height in pixels (valid range 80-10000).
+     * @param[in] width image width in pixels (valid range 50-10000).
+     * @param[in] height image height in pixels (valid range 50-10000).
      * @param[out] result the face rectangle result if any.
+     * @param[in] expand_roi when true, expand the returned rectangle by 40% on each side (useful for authentication/enrollment flows to
+     * provide better input to the device).
      * @return Status (Status::Ok on success).
      */
-    Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result);
-
-#endif // RSID_ONE2ONE
+    Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result, bool expand_roi);
 
     /**************************************************************************/
     /*************************** Host Mode Methods ****************************/
@@ -364,12 +363,10 @@ public:
      * @param[in] new_faceprints faceprints which were extracted from a single image of a person.
      * @param[in] existing_faceprints faceprints which were calculated from one or more images of the same person.
      * @param[in] updated_faceprints a placeholder to write the updated-faceprints into, if the match was successful.
-     * @param matcher_confidence_level confidence level
      * @return MatchResultHost match result, the 'success' field indicates if the two faceprints belong to the same
      * person.
      */
-    MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints, Faceprints& updated_faceprints,
-                                    ThresholdsConfidenceEnum matcher_confidence_level);
+    MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints, Faceprints& updated_faceprints);
 
     /**
      * Get the features descriptor for each user in the device's DB.

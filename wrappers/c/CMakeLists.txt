@@ -39,10 +39,5 @@ if(RSID_SECURE)
 endif()
 
 
-if(RSID_ONE2ONE)
-    target_compile_definitions(${LIBRSID_C_TARGET} PUBLIC RSID_ONE2ONE)
-endif()
-
-
 get_target_property(PROJECT_SOURCES ${LIBRSID_C_TARGET} SOURCES)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${PROJECT_SOURCES})

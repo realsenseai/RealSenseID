@@ -55,7 +55,7 @@ namespace ConsoleApp1
             var persons = rsid.Authenticator.MarshalPersons(personsArr, personCount);
             foreach (var person in persons)
             {
-                Console.WriteLine($"*** OnPersonDetected (id {person.id}) {person.x},{person.y}, {person.width}x{person.height} (ts {timestamp})");
+                Console.WriteLine($"*** OnPersonDetected (id {person.id}) {person.x},{person.y}, {person.width}x{person.height} (ts {timestamp}) score={person.score:F2}");
             }
         }
 

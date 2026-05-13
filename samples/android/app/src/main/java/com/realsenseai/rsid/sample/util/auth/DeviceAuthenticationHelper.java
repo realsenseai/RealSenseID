@@ -74,6 +74,8 @@ public class DeviceAuthenticationHelper extends com.realsenseai.rsid.api.Authent
     }
     else {
       if (nonNull(callback)) {
+        authenticator.Cancel();
+        authenticator.Disconnect();
         callback.onAuthFailure(authenticateStatus.toString(), faceRects);
       }
     }
@@ -92,6 +94,7 @@ public class DeviceAuthenticationHelper extends com.realsenseai.rsid.api.Authent
       p.setH(personRect.getH());
       p.setId(personRect.getId());
       p.setBody_part(personRect.getBody_part());
+      p.setScore(personRect.getScore());
       personRects.add(p);
     }
   }
@@ -157,10 +160,6 @@ public class DeviceAuthenticationHelper extends com.realsenseai.rsid.api.Authent
     }
   }
 
-  public void setAuthenticator(FaceAuthenticator authenticator) {
-    this.authenticator = authenticator;
-  }
-
   public void Authenticate(@Nullable AuthenticationCallback callback) {
     this.callback = callback;
     resultProcessed = false; // Reset the flag for new authentication attempt
@@ -176,6 +175,7 @@ public class DeviceAuthenticationHelper extends com.realsenseai.rsid.api.Authent
     }
     else {
       // This ensures clean auth
+      authenticator.Cancel();
       authenticator.Disconnect();
       authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
     }
@@ -188,7 +188,44 @@ public class DeviceAuthenticationHelper extends com.realsenseai.rsid.api.Authent
       Timber.d("DeviceAuthenticatorHelper: Authenticate: Failure");
       // Only call failure callback if we haven't already processed a result
       if (nonNull(callback) && !resultProcessed) {
+        authenticator.Cancel();
+        authenticator.Disconnect();
         requireNonNull(callback).onAuthFailure(status.toString(), faceRects);
+      }
+      else if (resultProcessed) {
+        Timber.d("DeviceAuthenticatorHelper: Skipping failure callback - result already processed");
+      }
+    }
+  }
+
+  public void AuthenticateOne2One(@Nullable AuthenticationCallback callback) {
+    this.callback = callback;
+    resultProcessed = false;
+    faceRects.clear();
+    personRects.clear();
+    faceLandmarks.clear();
+
+    if (isNull(authenticator)) {
+      if (nonNull(callback)) {
+        requireNonNull(callback).onAuthFailure("Error: Reattach camera", new ArrayList<>());
+      }
+    }
+    else {
+      // This ensures clean auth
+      authenticator.Cancel();
+      authenticator.Disconnect();
+      authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
+    }
+
+    var status = requireNonNull(authenticator).AuthenticateOneToOne(this);
+    if (status == Status.Ok) {
+      Timber.d("DeviceAuthenticatorHelper: Authenticate: Success");
+    }
+    else {
+      Timber.d("DeviceAuthenticatorHelper: Authenticate: Failure");
+      // Only call failure callback if we haven't already processed a result
+      if (nonNull(callback) && !resultProcessed) {
+        requireNonNull(callback).onAuthFailure(status.toString(), new ArrayList<>());
       }
       else if (resultProcessed) {
         Timber.d("DeviceAuthenticatorHelper: Skipping failure callback - result already processed");

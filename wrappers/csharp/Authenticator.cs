@@ -101,17 +101,6 @@ namespace rsid
         Right
     }
 
-    // we allow 3 confidence levels. This is used in our Matcher during authentication :
-    // each level means a different set of thresholds is used.
-    // This allow the user the flexibility to choose between 3 different FPR rates (Low, Medium, High).
-    // Currently all sets are the "High" confidence level thresholds.
-    public enum MatcherConfidenceLevel
-    {
-        High = 0,   // high confidence level (default).
-        Medium = 1, // medium
-        Low = 2 // low.
-    };
-
 
     // Frontal face policy
     public enum FrontalFacePolicy
@@ -259,7 +248,6 @@ namespace rsid
         public rsid.MatchElement newFaceprints;
         public rsid.Faceprints existingFaceprints;
         public rsid.Faceprints updatedFaceprints;
-        public rsid.MatcherConfidenceLevel matcherConfidenceLevel;
     }
 
     //[Serializable]
@@ -322,20 +310,11 @@ namespace rsid
             Walkthrough = 1
         };
 
-        public enum DistanceLimit
-        {
-            NoLimit = 0, // default, no distance limit
-            Short = 1, // 70cm
-            Mid = 2, // 100cm
-            Long = 3 // 130cm
-        };
-
         public CameraRotation cameraRotation;
         public SecurityLevel securityLevel;
         public AlgoFlow algoFlow;
         public FaceSelectionPolicy faceSelectionPolicy;
         public DumpMode dumpMode;
-        public MatcherConfidenceLevel matcherConfidenceLevel;
         public byte maxSpoofs;
         public int GpioAuthToggling;
         public FrontalFacePolicy frontalFacePolicy;
@@ -348,7 +327,7 @@ namespace rsid
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = MaxRois)]
         public Roi[] detection_rois;
         public byte num_rois;
-        public DistanceLimit distanceLimit;
+        public byte distanceLimitCm; // 0 = no limit, 1-150 = cm
         public byte distanceEnabled;
 
         public SerializableDeviceConfig ToSerialized()
@@ -360,12 +339,11 @@ namespace rsid
                 AlgoFlow = algoFlow.ToString(),
                 FaceSelectionPolicy = faceSelectionPolicy.ToString(),
                 DumpMode = dumpMode.ToString(),
-                MatcherConfidenceLevel = matcherConfidenceLevel.ToString(),
                 maxSpoofs = maxSpoofs,
                 GpioAuthToggling = GpioAuthToggling,
                 FrontalFacePolicy = frontalFacePolicy.ToString(),
                 PersonMotionMode = personMotionMode.ToString(),
-                DistanceLimit = distanceLimit.ToString(),
+                DistanceLimitCm = distanceLimitCm,
                 MatchThresh = matchThresh,
                 SensorExpTime = sensorExpTime,
                 SensorGain = sensorGain,
@@ -389,12 +367,11 @@ namespace rsid
         public string AlgoFlow;
         public string FaceSelectionPolicy;
         public string DumpMode;
-        public string MatcherConfidenceLevel;
         public byte maxSpoofs;
         public int GpioAuthToggling;
         public string FrontalFacePolicy;
         public string PersonMotionMode;
-        public string DistanceLimit;
+        public byte DistanceLimitCm;
         public short MatchThresh;
         public short SensorExpTime;
         public short SensorGain;
@@ -492,7 +469,7 @@ namespace rsid
         public AuthResultCallback resultClbk;
         public AuthHintCallback hintClbk;
         public FaceDetectedCallback faceDetectedClbk;
-        public LandmarksDetectedCallback landmarksDetectedClbk;        
+        public LandmarksDetectedCallback landmarksDetectedClbk;
         public FaceDistancesCallback faceDistancesClbk;
         public FaceCroppedImageCallback faceCroppedImageClbk;
         public IntPtr ctx;
@@ -608,6 +585,12 @@ namespace rsid
             return rsid_enroll(_handle, ref args);
         }
 
+        /// <summary>
+        /// Enroll a user using a BGR24 image of his face.
+        /// Note:
+        ///   - The image must contain exactly one face.
+        ///   - The enrolled face width and height must each be at least 144 pixels.
+        /// </summary>
         public EnrollStatus EnrollImage(string userId, byte[] buffer, int width, int height)
         {
             var pinnedArray = GCHandle.Alloc(buffer, GCHandleType.Pinned);
@@ -619,6 +602,12 @@ namespace rsid
             finally { pinnedArray.Free(); }
         }
 
+        /// <summary>
+        /// Extract faceprints from a BGR24 image for enrollment.
+        /// Note:
+        ///   - The image must contain exactly one face.
+        ///   - The enrolled face width and height must each be at least 144 pixels.
+        /// </summary>
         public EnrollStatus EnrollImageFeatureExtraction(string userId, byte[] buffer, int width, int height, ref Faceprints userFaceprints)
         {
             var pinnedArray = GCHandle.Alloc(buffer, GCHandleType.Pinned);
@@ -749,7 +738,6 @@ namespace rsid
             return rsid_unlock(_handle);
         }
 
-#if RSID_ONE2ONE
         public EnrollStatus EnrollImageOneToOne(string userId, byte[] buffer, int width, int height)
         {
             var pinnedArray = GCHandle.Alloc(buffer, GCHandleType.Pinned);
@@ -781,38 +769,26 @@ namespace rsid
             finally { pinnedArray.Free(); }
         }
 
-        // extract_image_faceprints using host pipeline (no device involved)
-        // buffer must be bgr 24 bits image
-        public Status ExtractFaceprintsOnHost(byte[] buffer, int width, int height, ref ExtractedFaceprints faceprints)
+        // Find face in given image using host pipeline (no device involved).
+        // expandRoi: when true, expand the returned rectangle by 40% on each side (clamped to image bounds).
+        public Status DetectFace(byte[] buffer, int width, int height, ref FaceRect faceRect, bool expandRoi = true)
         {
             var pinnedArray = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             try
             {
                 var pointer = pinnedArray.AddrOfPinnedObject();
-                return rsid_extract_faceprints_on_host(_handle, pointer, width, height, ref faceprints);
+                return rsid_detect_face(_handle, pointer, width, height, ref faceRect, expandRoi ? 1 : 0);
             }
             finally { pinnedArray.Free(); }
         }
 
-        // Find face in given image using host pipeline (no device involved)
-        public Status DetectFace(byte[] buffer, int width, int height, ref FaceRect faceRect)
-        {
-            var pinnedArray = GCHandle.Alloc(buffer, GCHandleType.Pinned);
-            try
-            {
-                var pointer = pinnedArray.AddrOfPinnedObject();
-                return rsid_detect_face(_handle, pointer, width, height, ref faceRect);
-            }
-            finally { pinnedArray.Free(); }
-        }
-
-        // Find face in given image using host pipeline (no device involved).        
+        // Find face in given image using host pipeline (no device involved).
         // Use inside the OnPreview callback.
-        public Status DetectFace(PreviewImage image, ref FaceRect faceRect)
+        // expandRoi: when true, expand the returned rectangle by 40% on each side (clamped to image bounds).
+        public Status DetectFace(PreviewImage image, ref FaceRect faceRect, bool expandRoi)
         {
-            return rsid_detect_face(_handle, image.buffer, image.width, image.height, ref faceRect);
+            return rsid_detect_face(_handle, image.buffer, image.width, image.height, ref faceRect, expandRoi ? 1 : 0);
         }
-#endif // ONE2ONE
 
         protected virtual void Dispose(bool disposing)
         {
@@ -922,7 +898,7 @@ namespace rsid
             if (status != Status.Ok)
                 return null;
             var exported_db = new rsid.Faceprints[number_of_users];
-            String[] user_ids = new String[number_of_users];
+            String[] user_ids;
             status = QueryUserIds(out user_ids);
             if (status != Status.Ok)
                 return null;
@@ -1094,7 +1070,6 @@ namespace rsid
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         static extern Status rsid_set_users_faceprints(IntPtr rsid_authenticator, rsid.UserFaceprints[] user_features, int n_users);
 
-#if RSID_ONE2ONE
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         static extern EnrollStatus rsid_enroll_image_one_to_one(IntPtr rsid_authenticator, string userId, IntPtr buffer, int width, int height);
 
@@ -1105,10 +1080,6 @@ namespace rsid
         static extern AuthStatus rsid_authenticate_image_one_to_one(IntPtr rsid_authenticator, IntPtr buffer, int width, int height, byte[] userId, ref short score);
 
         [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        static extern Status rsid_extract_faceprints_on_host(IntPtr rsid_authenticator, IntPtr buffer, int width, int height, ref ExtractedFaceprints faceprints);
-
-        [DllImport(Shared.DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        static extern Status rsid_detect_face(IntPtr rsid_authenticator, IntPtr buffer, int width, int height, ref FaceRect face);
-#endif
+        static extern Status rsid_detect_face(IntPtr rsid_authenticator, IntPtr buffer, int width, int height, ref FaceRect face, int expandRoi);
     }
 }

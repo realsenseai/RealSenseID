@@ -1,5 +1,6 @@
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(HEADERS "${SRC_DIR}/DiscoverDevicesCommon.h")
 
 if(UNIX OR ANDROID)
 	list(APPEND SOURCES "${SRC_DIR}/DiscoverDevices_Linux.cc")
@@ -14,4 +15,4 @@ elseif(WIN32)
 	list(APPEND SOURCES "${SRC_DIR}/DiscoverDevices_Win32.cc")
 endif()
 
-target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${SOURCES})
+target_sources(${LIBRSID_CPP_TARGET} PRIVATE ${SOURCES} ${HEADERS})

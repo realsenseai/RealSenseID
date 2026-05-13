@@ -8,13 +8,17 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.database.Cursor;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.OpenableColumns;
 import android.text.Html;
@@ -38,11 +42,9 @@ import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.textfield.TextInputLayout;
 import com.realsenseai.rsid.api.DeviceController;
 import com.realsenseai.rsid.api.DeviceType;
-import com.realsenseai.rsid.api.SerialConfig;
-import com.realsenseai.rsid.api.Status;
+import com.realsenseai.rsid.api.FwUpdater;
 import com.realsenseai.rsid.sample.R;
 import com.realsenseai.rsid.sample.databinding.FragmentFirmwareBinding;
-import com.realsenseai.rsid.sample.ui.preview.PreviewViewModel;
 import com.realsenseai.rsid.sample.ui.shared.RealSenseIdSharedViewModel;
 import com.realsenseai.rsid.sample.util.FWUpdateHelper;
 import com.realsenseai.rsid.sample.util.FileDownloader;
@@ -53,24 +55,39 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import timber.log.Timber;
 
 public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.UsbListener {
   private final AtomicBoolean isFlashing = new AtomicBoolean(false);
   private final AtomicBoolean failed = new AtomicBoolean(false);
+  // True once a flash has actually been dispatched (compat checks passed, UpdateModules ran).
+  // Used to defer clearDeviceCompatibility() to fragment-exit time, so PreviewFragment doesn't
+  // see a null verdict while the device is still mid-reboot.
+  private final AtomicBoolean didFlash = new AtomicBoolean(false);
+  // Counted down once the post-flash device has been attached for a full stabilization window
+  // with no intervening detach. waitForDeviceReboot awaits this instead of polling SDKWrapper or
+  // watching compatibility LiveData.
+  private volatile CountDownLatch reattachLatch;
+  private UsbDevicesReceiver firmwareUsbReceiver;
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  // Pending Runnable that will count down reattachLatch after REATTACH_STABILIZATION_MS of
+  // uninterrupted attached state. Re-armed on each onDeviceAttached, canceled on onDeviceDetached.
+  private Runnable pendingStableAttachCountdown;
   private FragmentFirmwareBinding binding;
   private Thread flashFirmwareThread;
   private Thread firmwareThread;
   private PowerManager.WakeLock wakeLock;
   private AlertDialog flashDialog;
   private ExecutorService executorService;
-  private volatile PreviewViewModel previewViewModel;
   private ActivityResultLauncher<Intent> firmwareFilePicker;
   private RealSenseIdSharedViewModel sharedViewModel;
 
+  private FirmwareViewModel firmwareViewModel;
   private AlertDialog blockingProgressDialog;
 
 
@@ -80,8 +97,6 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     executorService = Executors.newSingleThreadExecutor();
 
     sharedViewModel = new ViewModelProvider(requireActivity()).get(RealSenseIdSharedViewModel.class);
-
-    SDKWrapper.INSTANCE.closeConnection();
   }
 
   private void updateButtonState() {
@@ -107,13 +122,14 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     binding.buttonFlashFirmwareSelectFile.setEnabled(flashFirmwareSelectFileEnabled);
   }
 
+  @Override
   public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-    FirmwareViewModel firmwareViewModel = new ViewModelProvider(this).get(FirmwareViewModel.class);
+    firmwareViewModel = new ViewModelProvider(requireActivity()).get(FirmwareViewModel.class);
 
     binding = FragmentFirmwareBinding.inflate(inflater, container, false);
     View root = binding.getRoot();
     updateButtonState();
-    initializeUI(firmwareViewModel);
+    initializeUI();
     setupClickListeners();
 
     // Initialize the file picker launcher
@@ -136,19 +152,38 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
       updateButtonState();
     });
 
-    // Update UI based on connection state
+    // Update UI based on connection state. The cache (FirmwareViewModel) tracks staleness — a
+    // device attach/detach already calls markFirmwareInfoStale() in MainActivity, so this just
+    // needs to ask "load if stale", not force a reload.
+    //
+    // Suppressed while a flash is in progress: the device bounces several times before settling
+    // post-reboot, and each transient "connected=true" would fire QueryFirmwareVersion against
+    // an unstable device. The stabilization countdown in onDeviceAttached handles the post-flash
+    // refresh exactly once after the device has actually settled.
     sharedViewModel.getUsbConnectionState().observe(getViewLifecycleOwner(), isConnected -> {
-      if (isConnected) {
-        refreshFirmwareVersionsViews(true);
+      if (isConnected && !isFlashing.get()) {
+        refreshFirmwareVersionsViews(false);
       }
     });
   }
 
-  private void initializeUI(FirmwareViewModel firmwareViewModel) {
+  private void initializeUI() {
     binding.textHost.setText(com.realsenseai.rsid.api.RealSenseID.Version());
 
-    firmwareViewModel.getText().observe(getViewLifecycleOwner(),
-                                        html -> binding.textFirmware.setText(Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT)));
+    firmwareViewModel.getFormattedFirmwareHtml().observe(getViewLifecycleOwner(),
+                                                         html -> binding.textFirmware.setText(
+                                                           Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT)));
+
+    // Blocking progress dialog while a device read is in flight (cache-miss landing, refresh button,
+    // or post-flash reload). Cache-hit landings don't toggle isLoading, so no flash.
+    firmwareViewModel.getIsLoading().observe(getViewLifecycleOwner(), loading -> {
+      if (Boolean.TRUE.equals(loading)) {
+        showBlockingProgress("Please wait", "Fetching camera firmware version information.");
+      }
+      else {
+        hideBlockingProgress();
+      }
+    });
   }
 
   private void setupClickListeners() {
@@ -360,6 +395,8 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
       return;
     }
 
+    SDKWrapper.INSTANCE.closeUVCConnection();
+
     runOnUiThreadSafe(() -> {
       // Keep screen on
       requireActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -436,14 +473,27 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
   }
 
   private void downloadFirmware() {
-    try {
-      String fwUrl = getFirmwareUrl();
-      startFirmwareDownload(fwUrl);
-    }
-    catch (Exception e) {
-      Timber.e(e, "Error getting firmware URL");
-      showErrorDialog(Messages.SKU_ERROR_TITLE, "Error: " + e.getMessage());
-    }
+    // getFirmwareUrl() calls SDKWrapper.getSKUVersion() which opens a DeviceController and runs
+    // QueryOtpVersion / QuerySerialNumber — both blocking USB ioctls. On a busy device this can
+    // exceed 5s on the main thread → ANR. Punt to the background and cover the wait with a
+    // blocking progress dialog.
+    showBlockingProgress("Preparing firmware", "Querying device information…");
+    executorService.submit(() -> {
+      try {
+        String fwUrl = getFirmwareUrl();
+        runOnUiThreadSafe(() -> {
+          hideBlockingProgress();
+          startFirmwareDownload(fwUrl);
+        });
+      }
+      catch (Exception e) {
+        Timber.e(e, "Error getting firmware URL");
+        runOnUiThreadSafe(() -> {
+          hideBlockingProgress();
+          showErrorDialog(Messages.SKU_ERROR_TITLE, "Error: " + e.getMessage());
+        });
+      }
+    });
   }
 
   private String getFirmwareUrl() {
@@ -472,14 +522,25 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
   }
 
   private void extractResourcesFirmware() {
-    try {
-      String firmwarePath = extractFirmwareFromResources();
-      flashFirmware(firmwarePath);
-    }
-    catch (Exception e) {
-      Timber.e(e, "Error extracting firmware from resources");
-      showErrorDialog(Messages.SKU_ERROR_TITLE, "Error: " + e.getMessage());
-    }
+    // Same reason as downloadFirmware(): extractFirmwareFromResources() calls getSKUVersion()
+    // which does blocking USB ioctls. Background-thread + blocking progress dialog.
+    showBlockingProgress("Preparing firmware", "Querying device and extracting firmware…");
+    executorService.submit(() -> {
+      try {
+        String firmwarePath = extractFirmwareFromResources();
+        runOnUiThreadSafe(() -> {
+          hideBlockingProgress();
+          flashFirmware(firmwarePath);
+        });
+      }
+      catch (Exception e) {
+        Timber.e(e, "Error extracting firmware from resources");
+        runOnUiThreadSafe(() -> {
+          hideBlockingProgress();
+          showErrorDialog(Messages.SKU_ERROR_TITLE, "Error: " + e.getMessage());
+        });
+      }
+    });
   }
 
   private void pickFirmwareFile() {
@@ -605,10 +666,20 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     flashFirmwareThread = new Thread(() -> {
       synchronized (this) {
         MutableLiveData<Integer> flashProgress = new MutableLiveData<>();
-        FWUpdateHelper fwUpdateHelper = new FWUpdateHelper(requireContext(), flashProgress,
-                                                           new FirmwareFlashCallback(flashProgress));
+        FWUpdateHelper fwUpdateHelper = new FWUpdateHelper(flashProgress, new FirmwareFlashCallback(flashProgress));
 
-        var compatInfo = fwUpdateHelper.checkCompatibility(getDeviceType(), filePath);
+        // Blocking progress dialog covers the compat check: it queries the device and parses
+        // the .bin (several seconds on a slow USB), and without a dialog the UI appears frozen
+        // between the user's "Yes" and the next dialog (error / DB-mismatch confirmation / flash).
+        showBlockingProgress("Checking firmware compatibility",
+                             "Reading device and firmware information…");
+        FwUpdater.FwCompatibilityInfo compatInfo;
+        try {
+          compatInfo = fwUpdateHelper.checkCompatibility(getDeviceType(), filePath);
+        }
+        finally {
+          hideBlockingProgress();
+        }
         if (compatInfo == null) {
           postFlash();
           runOnUiThreadSafe(() -> showErrorDialog("Connection Error", "Unable to acquire serial port handle."));
@@ -707,6 +778,8 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
           flashProgress.observe(getViewLifecycleOwner(), progressBar::setProgress);
         });
 
+        didFlash.set(true);
+        reattachLatch = new CountDownLatch(1);
         fwUpdateHelper.flashFirmware(getDeviceType(), filePath);
       }
     });
@@ -718,22 +791,19 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     return sharedViewModel.getCurrentDeviceType();
   }
 
-  private void showBlockingProgress(String title, String message) {
+  private void showBlockingProgress(@NonNull String title, @NonNull String message) {
     runOnUiThreadSafe(() -> {
       if (blockingProgressDialog != null && blockingProgressDialog.isShowing()) {
-        return; // Already showing
+        return;
       }
-
       ProgressBar progressBar = new ProgressBar(requireContext());
       progressBar.setIndeterminate(true);
-
       blockingProgressDialog = new MaterialAlertDialogBuilder(requireContext())
         .setTitle(title)
         .setMessage(message)
         .setView(progressBar)
-        .setCancelable(false) // This prevents user from dismissing
+        .setCancelable(false)
         .create();
-
       blockingProgressDialog.show();
     });
   }
@@ -742,77 +812,18 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     runOnUiThreadSafe(() -> {
       if (blockingProgressDialog != null && blockingProgressDialog.isShowing()) {
         blockingProgressDialog.dismiss();
-        blockingProgressDialog = null;
       }
+      blockingProgressDialog = null;
     });
   }
 
   private void refreshFirmwareVersionsViews(Boolean forceReload) {
-    FirmwareViewModel firmwareViewModel = new ViewModelProvider(this).get(FirmwareViewModel.class);
-
-    if (forceReload || shouldRefreshFirmwareInfo(firmwareViewModel)) {
-      binding.textFirmware.setText(Messages.LOADING_TEXT);
-
-      executorService.submit(() -> {
-        try {
-          showBlockingProgress("Please wait", "Fetching camera firmware version information.");
-          String firmwareInfo = getFirmwareVersionInfo();
-          updateFirmwareInfoOnUI(firmwareViewModel, firmwareInfo);
-        }
-        catch (Exception e) {
-          Timber.e(e, "Error refreshing firmware versions");
-          updateFirmwareInfoOnUI(firmwareViewModel, Messages.ERROR_LOADING_TEXT);
-        }
-        finally {
-          hideBlockingProgress();
-        }
-      });
+    if (forceReload) {
+      firmwareViewModel.reloadFirmwareInfo();
     }
-  }
-
-  private boolean shouldRefreshFirmwareInfo(FirmwareViewModel viewModel) {
-    String currentValue = viewModel.getText().getValue();
-    return currentValue == null || currentValue.isEmpty();
-  }
-
-  private String getFirmwareVersionInfo() {
-    synchronized (this) {
-      var controller = SDKWrapper.INSTANCE.getDeviceController();
-      if (controller == null) {
-        return Messages.DEVICE_NOT_CONNECTED_TEXT;
-      }
-
-      String[] fwArr = new String[1];
-      Status status = controller.QueryFirmwareVersion(fwArr);
-      controller.Disconnect();
-      controller.delete();
-
-      if (status == Status.Ok && fwArr[0] != null) {
-        return formatFirmwareInfo(fwArr[0]);
-      }
-      else {
-        return Messages.QUERY_FAILED_TEXT;
-      }
+    else {
+      firmwareViewModel.loadFirmwareInfoIfNeeded();
     }
-  }
-
-  private String formatFirmwareInfo(String firmwareString) {
-    StringBuilder html = new StringBuilder("<ul>");
-    String[] models = firmwareString.split("\\|");
-
-    for (String model : models) {
-      String[] parts = model.split(":", 2);
-      if (parts.length == 2) {
-        html.append("<li><b>").append(parts[0]).append("</b>: ").append(parts[1]).append("</li>");
-      }
-    }
-
-    html.append("</ul>");
-    return html.toString();
-  }
-
-  private void updateFirmwareInfoOnUI(FirmwareViewModel viewModel, String info) {
-    runOnUiThreadSafe(() -> viewModel.setText(info));
   }
 
   private void runOnUiThreadSafe(Runnable action) {
@@ -838,6 +849,14 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     if (flashFirmwareThread != null && !flashFirmwareThread.isInterrupted()) {
       flashFirmwareThread.interrupt();
     }
+    if (firmwareViewModel != null) {
+      firmwareViewModel.cancelLoad();
+    }
+    if (pendingStableAttachCountdown != null) {
+      mainHandler.removeCallbacks(pendingStableAttachCountdown);
+      pendingStableAttachCountdown = null;
+    }
+    hideBlockingProgress();
 
     // Release wake lock safely
     releaseWakeLock();
@@ -852,12 +871,47 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     if (executorService != null && !executorService.isShutdown()) {
       executorService.shutdown();
     }
-    SDKWrapper.INSTANCE.closeConnection();
+  }
+
+  @Override
+  public void onResume() {
+    super.onResume();
+    try {
+      firmwareUsbReceiver = new UsbDevicesReceiver(this);
+      IntentFilter filter = new IntentFilter();
+      filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+      filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+      requireContext().registerReceiver(firmwareUsbReceiver, filter);
+    }
+    catch (Exception e) {
+      Timber.e(e, "Error registering USB receiver");
+    }
+  }
+
+  @Override
+  public void onPause() {
+    if (firmwareUsbReceiver != null) {
+      try {
+        requireContext().unregisterReceiver(firmwareUsbReceiver);
+      }
+      catch (Exception e) {
+        Timber.w(e, "Error unregistering USB receiver");
+      }
+      finally {
+        firmwareUsbReceiver = null;
+      }
+    }
+    super.onPause();
   }
 
   @Override
   public void onDestroyView() {
     super.onDestroyView();
+    // Defer the compatibility verdict reset to here so PreviewFragment doesn't see a null
+    // verdict while the device is mid-reboot. Only clear if we actually dispatched a flash.
+    if (didFlash.getAndSet(false) && sharedViewModel != null) {
+      sharedViewModel.clearDeviceCompatibility();
+    }
     cleanupResources();
     binding = null;
   }
@@ -865,16 +919,50 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
   @Override
   public void onDeviceDetached(@Nullable UsbDevice usbDevice) {
     Timber.i("FirmwareFragment: onDeviceDetached");
+    // Device just dropped — if we had a stabilization-window countdown pending, cancel it.
+    // The next attach will re-arm a fresh window.
+    if (pendingStableAttachCountdown != null) {
+      mainHandler.removeCallbacks(pendingStableAttachCountdown);
+      pendingStableAttachCountdown = null;
+    }
   }
 
   @Override
   public void onDeviceAttached(@Nullable UsbDevice usbDevice) {
     Timber.i("FirmwareFragment: onDeviceAttached");
+    CountDownLatch latch = reattachLatch;
+    if (latch != null) {
+      // The first attach after a flash is often unstable — post-flash devices commonly
+      // bounce a few times before settling (on specific Android devices). Schedule both
+      // the latch countdown and the firmware-info refresh for the end of a stabilization
+      // window; if another detach
+      // arrives before then, onDeviceDetached cancels and the next attach re-arms.
+      // Note: Windows/Linux seem to not bounce, but Android bounces on older Android versions
+      //       and devices.
+      if (pendingStableAttachCountdown != null) {
+        mainHandler.removeCallbacks(pendingStableAttachCountdown);
+      }
+      pendingStableAttachCountdown = () -> {
+        pendingStableAttachCountdown = null;
+        Timber.i("FirmwareFragment: device stable for %d ms — signaling reboot done",
+                 Config.REATTACH_STABILIZATION_MS);
+        latch.countDown();
+        // Now that the device has been quiet for the full window, it's safe to hit it
+        // with a firmware-version query.
+        refreshFirmwareVersionsViews(false);
+      };
+      mainHandler.postDelayed(pendingStableAttachCountdown, Config.REATTACH_STABILIZATION_MS);
+    }
     if (binding == null || !isAdded() || getView() == null) {
       Timber.e("FirmwareFragment: onDeviceAttached called but binding is null!");
     }
     updateButtonState();
-    refreshFirmwareVersionsViews(true);
+    // Skip the immediate refresh while a flash is in progress — the stabilization countdown
+    // above will do it exactly once after the device has actually settled. Outside of a flash,
+    // refresh on every attach as before (cache-aware: only hits the device when stale).
+    if (!isFlashing.get()) {
+      refreshFirmwareVersionsViews(false);
+    }
   }
 
   // Configuration constants
@@ -882,11 +970,15 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     static final String FW_SKU1_URL = "https://github.com/realsenseai/RealSenseID/releases/download/v1.3.1/F450_8.2.0.300_SKU1_SIGNED.bin";
     static final String FW_SKU2_URL = "https://github.com/realsenseai/RealSenseID/releases/download/v1.3.1/F450_8.2.0.300_SKU2_SIGNED.bin";
     static final int WAKE_LOCK_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
-    static final int DEVICE_REBOOT_MAX_RETRIES = 20;
-    static final int DEVICE_REBOOT_RETRY_DELAY_MS = 500;
+    // How long the device must stay attached uninterrupted before we consider the reboot done.
+    // Post-flash devices often bounce a few times before settling.
+    static final long REATTACH_STABILIZATION_MS = 3_000;
+    // Overall budget for waitForDeviceReboot — large enough to absorb several bounce cycles
+    // plus one full stabilization window at the end.
+    static final long REATTACH_TIMEOUT_MS = 45_000;
     static final String FIRMWARE_FILENAME = "firmware.bin";
     static final int BUFFER_SIZE = 4096;
-    static final int REQUEST_CODE_PICK_FIRMWARE = 1001;
+
   }
 
   // TODO: Extract to resources
@@ -909,10 +1001,6 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     static final String SKU_ERROR_TITLE = "SKU Error";
     static final String DOWNLOAD_ERROR_TITLE = "Firmware Download Error";
     static final String FLASH_ERROR_TITLE = "Firmware Flash Error";
-    static final String LOADING_TEXT = "Loading...\n";
-    static final String ERROR_LOADING_TEXT = "<ul><li>Error loading firmware info</li></ul>";
-    static final String DEVICE_NOT_CONNECTED_TEXT = "<ul><li>Device not connected</li></ul>";
-    static final String QUERY_FAILED_TEXT = "<ul><li>Failed to query firmware version</li></ul>";
   }
 
   private class FirmwareDownloadCallback implements FileDownloader.FileDownloaderCallback {
@@ -954,9 +1042,7 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     @Override
     public void onUpdateSuccess() {
       Timber.i("Firmware flash successful");
-      getPreviewViewModel().setIsCompatible(false); // Enforce compat recheck
       failed.set(false);
-
       runOnUiThreadSafe(() -> flashProgress.removeObservers(getViewLifecycleOwner()));
       handleFlashSuccess();
     }
@@ -964,8 +1050,6 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     @Override
     public void onUpdateFailure(String message) {
       Timber.e("Firmware flash failed: %s", message);
-      getPreviewViewModel().setIsCompatible(false); // Enforce compat recheck
-
       failed.set(true);
       runOnUiThreadSafe(() -> {
         synchronized (this) {
@@ -993,6 +1077,12 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
         return;
       }
 
+      // Firmware version on the device just changed; invalidate the cache so the next
+      // load (after the device reboots and reattaches) reads the new version.
+      if (firmwareViewModel != null) {
+        firmwareViewModel.markFirmwareInfoStale();
+      }
+
       runOnUiThreadSafe(() -> showErrorDialog(Messages.SUCCESS_TITLE, Messages.SUCCESS_MESSAGE));
 
       // Wait for device reboot (blocking, runs on background thread)
@@ -1002,30 +1092,31 @@ public class FirmwareFragment extends Fragment implements UsbDevicesReceiver.Usb
     }
 
     private void waitForDeviceReboot() {
-      SerialConfig config = null;
-      int tries = Config.DEVICE_REBOOT_MAX_RETRIES;
+      // Wait for the next USB attach broadcast — that's the authoritative signal that the
+      // device finished rebooting and re-enumerated. The latch was initialized just before
+      // UpdateModules ran; onDeviceAttached counts it down.
+      //
+      // Do NOT close the SDKWrapper connection here. MainActivity's broadcast handlers
+      // (onDeviceDetached → closeConnection, onDeviceAttached → ensurePermissionThenRun)
+      // already own the state machine, and a redundant close here yanks the fd out from
+      // under loadDeviceSettings if the broadcasts have already cycled. Only force-clean on
+      // timeout, when the natural pipeline didn't complete.
+      CountDownLatch latch = reattachLatch;
+      if (latch == null) {
+        Timber.w("waitForDeviceReboot: no reattach latch (flash did not initialize it)");
+        return;
+      }
 
-      while (config == null && tries > 0) {
-        try {
-          tries--;
-          Thread.sleep(Config.DEVICE_REBOOT_RETRY_DELAY_MS);
-          config = SDKWrapper.INSTANCE.getCachedOrNewSerialConfig();
-        }
-        catch (Exception ignored) {
-          // Expected during reboot
+      try {
+        if (!latch.await(Config.REATTACH_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+          Timber.w("waitForDeviceReboot: timed out waiting for USB attach — forcing state reset");
+          SDKWrapper.INSTANCE.closeUVCConnection();
+          SDKWrapper.INSTANCE.closeConnection();
         }
       }
-    }
-
-    private PreviewViewModel getPreviewViewModel() {
-      if (previewViewModel == null) {
-        synchronized (this) {
-          if (previewViewModel == null) {
-            previewViewModel = new ViewModelProvider(requireActivity()).get(PreviewViewModel.class);
-          }
-        }
+      catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
       }
-      return previewViewModel;
     }
   }
 }

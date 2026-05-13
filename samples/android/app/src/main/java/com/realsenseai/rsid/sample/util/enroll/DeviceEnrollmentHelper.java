@@ -25,10 +25,9 @@ public class DeviceEnrollmentHelper extends com.realsenseai.rsid.api.EnrollmentC
   private final Context context;
   private String name;
   private EnrollmentCallback callback;
-  private Thread imageEnrollmentThread;
   private boolean resultProcessed = false;
 
-  private volatile FaceAuthenticator authenticator;
+  private final FaceAuthenticator authenticator;
 
   public DeviceEnrollmentHelper(Context context, FaceAuthenticator authenticator) {
     this.context = context;
@@ -47,18 +46,53 @@ public class DeviceEnrollmentHelper extends com.realsenseai.rsid.api.EnrollmentC
       return;
     }
     else {
-      // This ensures clean auth
-      requireNonNull(authenticator).Disconnect();
-      requireNonNull(authenticator).Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
+      // This ensures clean enroll
+      authenticator.Cancel();
+      authenticator.Disconnect();
+      authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
     }
 
     var status = requireNonNull(authenticator).Enroll(this, this.name);
-    if (status != Status.Ok) {
+    // Success/failure is determined by OnResult(EnrollStatus); the Status returned here
+    // only signals transport-level errors (the device session may have completed cleanly
+    // with EnrollStatus.NoFaceDetected etc., which still returns Status.Ok).
+    if (status != Status.Ok && !resultProcessed) {
+      authenticator.Cancel();
+      authenticator.Disconnect();
+      requireNonNull(callback).onEnrollmentFailure(status.toString());
+    }
+  }
+
+  public void EnrollImageOneToOne(@NonNull String name, @NonNull byte[] buffer,
+                                  long width, long height,
+                                  @Nullable EnrollmentCallback callback) {
+    this.name = name;
+    this.callback = callback;
+    resultProcessed = false; // Reset the flag for new enrollment attempt
+
+    if (isNull(authenticator)) {
+      if (nonNull(callback)) {
+        requireNonNull(callback).onEnrollmentFailure("Error: Reattach camera");
+      }
+      return;
+    }
+    else {
+      // This ensures clean auth
+      authenticator.Cancel();
+      authenticator.Disconnect();
+      authenticator.Connect(SDKWrapper.INSTANCE.getCachedOrNewSerialConfig());
+    }
+
+    var status = requireNonNull(authenticator).EnrollImageOneToOne(name, buffer, width, height);
+
+    if (status != EnrollStatus.Success) {
       // Only call failure callback if we haven't already processed a result
       if (!resultProcessed) {
         requireNonNull(callback).onEnrollmentFailure(status.toString());
       }
       else {
+        authenticator.Cancel();
+        authenticator.Disconnect();
         Timber.d("DeviceEnrollmentHelper: Skipping failure callback - result already processed");
       }
     }
@@ -81,8 +115,8 @@ public class DeviceEnrollmentHelper extends com.realsenseai.rsid.api.EnrollmentC
     // Mark result as processed to prevent duplicate processing
     resultProcessed = true;
 
-    // authenticator.Disconnect();   // TODO: Fix crash on disconnect
-    SDKWrapper.INSTANCE.closeConnection();
+    authenticator.Cancel();
+    authenticator.Disconnect();
 
     try {
       if (nonNull(callback)) {

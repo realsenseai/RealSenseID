@@ -17,14 +17,13 @@ import com.google.android.material.snackbar.Snackbar;
 import com.realsenseai.rsid.sample.databinding.FragmentUsersBinding;
 import com.realsenseai.rsid.sample.db.User;
 import com.realsenseai.rsid.sample.ui.shared.RealSenseIdSharedViewModel;
-import java.util.List;
 
 public class UserListFragment extends Fragment {
 
   private FragmentUsersBinding binding;
   private UserListAdapter<User> hostDbAdapter;
   private UserListAdapter<DeviceUser> deviceDbAdapter;
-  private UserListViewModel<?> userListViewModel;
+  private UserListViewModel userListViewModel;
   private boolean useHostDb = false;
 
   @Nullable
@@ -32,86 +31,72 @@ public class UserListFragment extends Fragment {
   public View onCreateView(@NonNull LayoutInflater inflater,
                            @Nullable ViewGroup container,
                            @Nullable Bundle savedInstanceState) {
-    userListViewModel = new ViewModelProvider(this).get(UserListViewModel.class);
-    userListViewModel.clearUsers();
-
     binding = FragmentUsersBinding.inflate(inflater, container, false);
 
     var sharedViewModel = new ViewModelProvider(requireActivity()).get(RealSenseIdSharedViewModel.class);
-    useHostDb = sharedViewModel.getUseHostDb().getValue() != null && sharedViewModel.getUseHostDb().getValue() == true;
+    // Activity-scoped so the device-users LiveData survives across navigation.
+    userListViewModel = new ViewModelProvider(requireActivity()).get(UserListViewModel.class);
+    useHostDb = Boolean.TRUE.equals(sharedViewModel.getUseHostDb().getValue());
 
     if (useHostDb) {
       hostDbAdapter =
         new UserListAdapter<>(position -> userListViewModel.deleteHostDbUser(position), UserListAdapter.getDbUserItemBinder());
-      var recyclerView = binding.recyclerviewUsers;
-      recyclerView.setAdapter(hostDbAdapter);
+      binding.recyclerviewUsers.setAdapter(hostDbAdapter);
     }
     else {
       deviceDbAdapter =
         new UserListAdapter<>(position -> userListViewModel.deleteDeviceDbUser(position), UserListAdapter.getDeviceUserItemBinder());
-      var recyclerView = binding.recyclerviewUsers;
-      recyclerView.setAdapter(deviceDbAdapter);
+      binding.recyclerviewUsers.setAdapter(deviceDbAdapter);
     }
 
     setupRecyclerView();
     observeViewModel();
 
-    // Load users when fragment is created
     if (useHostDb) {
       userListViewModel.loadHostDbUsers();
     }
     else {
-      userListViewModel.loadDeviceDbUsers();
+      userListViewModel.loadDeviceUsersIfNeeded();
     }
 
     return binding.getRoot();
   }
 
   private void setupRecyclerView() {
-    var recyclerView = binding.recyclerviewUsers;
-
-    recyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
-
-    // Add divider decoration
-    var divider = new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL);
-    recyclerView.addItemDecoration(divider);
+    binding.recyclerviewUsers.setLayoutManager(new LinearLayoutManager(requireContext()));
+    binding.recyclerviewUsers.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
   }
 
-
   private void observeViewModel() {
-    // Observe users list
-    userListViewModel.getUsers().observe(getViewLifecycleOwner(), users -> {
-      if (users != null) {
-        if (useHostDb) {
-          hostDbAdapter.updateUsers((List<User>)users);
-        }
-        else {
-          deviceDbAdapter.updateUsers((List<DeviceUser>)users);
-        }
-      }
-    });
+    if (useHostDb) {
+      userListViewModel.getHostUsers().observe(getViewLifecycleOwner(), users -> {
+        if (users != null) hostDbAdapter.updateUsers(users);
+      });
+    }
+    else {
+      userListViewModel.getDeviceUsers().observe(getViewLifecycleOwner(), users -> {
+        if (users != null) deviceDbAdapter.updateUsers(users);
+      });
+    }
 
-    // Observe loading state
     userListViewModel.getIsLoading().observe(getViewLifecycleOwner(), isLoading -> {
       // binding.progressBar.setVisibility(isLoading ? View.VISIBLE : View.GONE);
     });
 
-    // Observe errors
     userListViewModel.getError().observe(getViewLifecycleOwner(), error -> {
       if (error != null && !error.isEmpty()) {
         showError(error);
-        userListViewModel.clearError(); // Clear error after showing
+        userListViewModel.clearError();
       }
     });
 
-    // Observe deletion results
     userListViewModel.getDeletionResult().observe(getViewLifecycleOwner(), result -> {
       if (result != null) {
-        if (result.isSuccess()) {
+        if (result.success()) {
           showMessage("User deleted successfully");
         }
         else {
-          showError("Failed to delete user: " + result.getError());
+          showError("Failed to delete user: " + result.error());
         }
         userListViewModel.clearDeletionResult();
       }
@@ -133,9 +118,11 @@ public class UserListFragment extends Fragment {
   @Override
   public void onDestroyView() {
     super.onDestroyView();
+    if (!useHostDb) {
+      userListViewModel.cancelDeviceLoad();
+    }
     binding = null;
     hostDbAdapter = null;
     deviceDbAdapter = null;
-    userListViewModel.clearUsers();
   }
 }

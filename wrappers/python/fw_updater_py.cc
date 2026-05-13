@@ -298,6 +298,8 @@ private:
         {
             metadata.fw_version = ExtractModuleFromVersion("OPFW:", fw_version);
             metadata.recognition_version = ExtractModuleFromVersion("RECOG:", fw_version);
+            if (metadata.recognition_version == "Unknown")
+                metadata.recognition_version = ExtractModuleFromVersion("FEATURES:", fw_version);
             metadata.device_type = device_type;
         }
 

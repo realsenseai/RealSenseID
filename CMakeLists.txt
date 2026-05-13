@@ -77,8 +77,9 @@ if(ANDROID)
 elseif(NOT WIN32)
     option(RSID_LIBUVC "Use libuvc instead of V4L2 for preview" OFF)
 endif()
-option(RSID_ONE2ONE "Enable one to one user matching use case" OFF)
+option(RSID_PIPELINE "Enable host-side face detection pipeline (requires ONNX Runtime)" ON)
 option(RSID_TESTS "Build unit tests" OFF)
+option(RSID_EMBEDDED "Build embedded C SDK" OFF)
 
 # libuvc is only used for preview, so disable it when preview is off
 if(RSID_LIBUVC AND NOT RSID_PREVIEW)
@@ -108,9 +109,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${BIN_OUTPUT_PATH}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${LIBS_OUTPUT_PATH}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${LIBS_OUTPUT_PATH}")    
 SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+# Look for .so deps next to the binary itself (e.g. librsid.so finds libonnxruntime.so in lib/)
+SET(CMAKE_BUILD_RPATH "\$ORIGIN")
 
 include(cmake/OS.cmake)
 include(cmake/spdlog.cmake)
+if(RSID_PIPELINE)
+    include(cmake/onnxruntime.cmake)
+    include(cmake/models.cmake)
+endif()
+include(cmake/stb.cmake)
 
 if(RSID_SECURE)
     include(cmake/Mbedtls.cmake)
@@ -141,6 +149,10 @@ endif ()
 
 add_subdirectory(src)
 add_subdirectory(wrappers)
+
+if(RSID_EMBEDDED)
+    add_subdirectory(embedded)
+endif()
 
 if(RSID_INSTALL)
     include (cmake/Install.cmake)

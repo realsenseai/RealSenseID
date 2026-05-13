@@ -70,7 +70,7 @@ public:
     /**
      * Called to inform the client that face cropped is ready.
      *
-     * @param[in] buffer bgr24 image buffer of the authenticated user face.
+     * @param[in] buffer rgb24 image buffer of the authenticated user face.
      * @param[in] width image width.
      * @param[in] height image height.
      */

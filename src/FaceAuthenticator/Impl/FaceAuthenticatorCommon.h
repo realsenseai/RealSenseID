@@ -22,11 +22,10 @@ using Session = RealSenseID::PacketManager::SecureSession;
 using Session = RealSenseID::PacketManager::NonSecureSession;
 #endif // RSID_SECURE
 
-#ifdef RSID_ONE2ONE
-#include "RealSenseID/pipeline.h"
-#endif
+#include "Pipeline.h"
 
 #include "IFaceAuthenticator.h"
+#include "DownloadImage.h"
 
 #include <memory>
 #include <atomic>
@@ -39,19 +38,6 @@ namespace RealSenseID
 {
 namespace Impl
 {
-struct DownloadImage
-{
-    std::vector<unsigned char> buffer;
-    unsigned int w = 0;
-    unsigned int h = 0;
-    unsigned int ts = 0;
-    unsigned int last_chunk = 0;
-    PacketManager::Timer timer;
-
-    void OnStart(unsigned int width, unsigned int height, unsigned timestamp);
-    bool AddChunk(unsigned short chunk_n, unsigned char* data, size_t size);
-};
-
 class FaceAuthenticatorCommon : public IFaceAuthenticator
 {
 public:
@@ -89,25 +75,18 @@ public:
     Status Hibernate() override;
     Status Unlock() override;
 
-#ifdef RSID_ONE2ONE
     EnrollStatus EnrollImageOneToOne(const char* user_id, const unsigned char* buffer, unsigned int width, unsigned int height) override;
     Status AuthenticateOneToOne(AuthenticationCallback& callback) override;
     AuthenticateStatus AuthenticateImageOneToOne(const unsigned char* buffer, unsigned int width, unsigned int height, std::string& user_id,
                                                  short& score) override;
-    Status ExtractFaceprintsOnHost(const unsigned char* buffer, unsigned int width, unsigned int height,
-                                   ExtractedFaceprints* pExtractedFaceprints) override;
-
-    Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result) override;
-
-#endif // RSID_ONE2ONE
+    Status DetectFace(const unsigned char* buffer, unsigned int width, unsigned int height, FaceRect& result, bool expand_roi) override;
 
     Status SendImageToDevice(const unsigned char* buffer, unsigned int width, unsigned int height) override;
     Status ExtractFaceprintsForEnroll(EnrollFaceprintsExtractionCallback& callback) override;
     Status ExtractFaceprintsForAuth(AuthFaceprintsExtractionCallback& callback) override;
     Status ExtractFaceprintsForAuthLoop(AuthFaceprintsExtractionCallback& callback) override;
 
-    MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints, Faceprints& updated_faceprints,
-                                    ThresholdsConfidenceEnum matcher_confidence_level) override;
+    MatchResultHost MatchFaceprints(MatchElement& new_faceprints, Faceprints& existing_faceprints, Faceprints& updated_faceprints) override;
 
     Status GetUsersFaceprints(Faceprints* user_features, unsigned int& num_of_users) override;
     Status SetUsersFaceprints(UserFaceprints* users_faceprints, unsigned int num_of_users) override;
@@ -127,21 +106,14 @@ protected:
     DownloadImage _image_downloader;
 
     static bool ValidateUserId(const char* user_id);
+    Pipeline::FaceResult CropFace(const unsigned char* buffer, unsigned int width, unsigned int height, Pipeline::FacePolicy policy,
+                                  Pipeline::Image& cropped);
     Status SendUserFaceprints(UserFaceprints& features);
     EnrollStatus EnrollImageImpl(PacketManager::MsgId msgId, const char* user_id, const unsigned char* buffer, unsigned int width,
-                                 unsigned int height);
+                                 unsigned int height, Pipeline::FacePolicy policy);
     bool ProcessAuthPacket(PacketManager::MsgId msg_id, const PacketManager::FaPacket& packet, AuthenticationCallback& callback,
                            Status& out_status);
     Status AuthenticateImpl(PacketManager::MsgId msgId, AuthenticationCallback& callback);
-
-#ifdef RSID_ONE2ONE
-    // one to one pipeline singleton
-    static std::shared_ptr<Pipeline::Api> GetPipeLine();
-    // normalized image from buffer to the result image
-    // return ReturnCode::Ok on success
-    Pipeline::ReturnCode NormalizeImage(const unsigned char* buffer, const unsigned int width, const unsigned int height,
-                                        Pipeline::ImageResult& result);
-#endif
 
     void SendProgress(bool status);
     bool GetFaceCroppedImage(const PacketManager::SerialPacket& packet, bool& inProgress);

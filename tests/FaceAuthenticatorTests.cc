@@ -156,7 +156,6 @@ TEST_CASE_METHOD(DeviceFixture, "Config Read/Write", "[authenticator][config]")
     dc.algo_flow = DeviceConfig::AlgoFlow::All;
     dc.face_selection_policy = DeviceConfig::FaceSelectionPolicy::Single;
     dc.dump_mode = DeviceConfig::DumpMode::None;
-    dc.matcher_confidence_level = DeviceConfig::MatcherConfidenceLevel::Low;
     dc.max_spoofs = 42;
     dc.detection_rois[0] = {10, 10, 500, 500};
     dc.num_rois = 1;
@@ -224,7 +223,7 @@ TEST_CASE_METHOD(DeviceFixture, "Host-side Matcher", "[authenticator][host-mode]
     std::memset(&new_fp, 0, sizeof(new_fp));
     std::memset(&existing_fp, 0, sizeof(existing_fp));
 
-    auto result = fa.MatchFaceprints(new_fp, existing_fp, updated_fp, ThresholdsConfidenceEnum::ThresholdsConfidenceLevel_High);
+    auto result = fa.MatchFaceprints(new_fp, existing_fp, updated_fp);
     CHECK_FALSE(result.success);
 }
 

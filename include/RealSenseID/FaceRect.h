@@ -57,6 +57,7 @@ struct RSID_API PersonRect
     uint32_t id = 0;
     uint32_t distance = 0;
     BodyPart body_part = BodyPart::Person;
+    float score = 0.0f; // detection confidence (0.0–1.0)
 };
 
 #define NUM_POSE_LANDMARKS 17

@@ -12,6 +12,7 @@ static const char* LOG_TAG = "FaceAuthenticatorF50x";
 static constexpr std::chrono::milliseconds KEEP_ALIVE_INTERVAL {4'000};
 static constexpr std::chrono::milliseconds SESSION_TIMEOUT {5'000}; // single session timeout
 static constexpr unsigned int MAX_PERSONS = 35;
+static constexpr unsigned int MAX_CONSECUTIVE_CRC_ERRORS = 3;
 
 namespace RealSenseID
 {
@@ -150,6 +151,8 @@ static std::pair<std::vector<PersonPose>, unsigned int> ParsePoses(const PacketM
 //   - Result: intermediate status from device (e.g. no face found). Forwarded to callback on failure.
 //   - Reply: final session status from device. Session is over, return the status.
 //
+// CRC tolerance: transient Recv CRC errors are reported via callback; rethrown after MAX_CONSECUTIVE_CRC_ERRORS in a row.
+//
 Status FaceAuthenticatorF50x::DetectPersons(const RealSenseID::FaceAuthenticator::PersonCallback& callback, bool loop)
 {
     using PacketManager::MsgId;
@@ -162,6 +165,7 @@ Status FaceAuthenticatorF50x::DetectPersons(const RealSenseID::FaceAuthenticator
         Send(fa_packet);
 
         PacketManager::Timer timer {loop ? KEEP_ALIVE_INTERVAL : SESSION_TIMEOUT};
+        unsigned int consecutive_crc_errors = 0;
 
         while (!_cancel_loop)
         {
@@ -180,7 +184,26 @@ Status FaceAuthenticatorF50x::DetectPersons(const RealSenseID::FaceAuthenticator
                 }
             }
 
-            auto received_id = Recv(fa_packet);
+            PacketManager::MsgId received_id = MsgId::None;
+            try
+            {
+                received_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    if (!callback({}, 0, AuthenticateStatus::CrcError) && loop)
+                    {
+                        return Status::Ok;
+                    }
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
+
             switch (received_id)
             {
             case MsgId::PersonDetected: {
@@ -213,6 +236,10 @@ Status FaceAuthenticatorF50x::DetectPersons(const RealSenseID::FaceAuthenticator
                 LOG_DEBUG(LOG_TAG, "Got Reply, final status: %d", static_cast<int>(final_status));
                 canceler.DoNotCancel();
                 return final_status;
+            }
+            case MsgId::Hint: {
+                LOG_DEBUG(LOG_TAG, "Ignoring hints during person detection session");
+                break;
             }
             default:
                 LOG_WARNING(LOG_TAG, "Received unexpected MsgId: %d", static_cast<int>(received_id));
@@ -250,6 +277,7 @@ Status FaceAuthenticatorF50x::DetectPoses(const RealSenseID::FaceAuthenticator::
         Send(fa_packet);
 
         PacketManager::Timer timer {loop ? KEEP_ALIVE_INTERVAL : SESSION_TIMEOUT};
+        unsigned int consecutive_crc_errors = 0;
 
         while (!_cancel_loop)
         {
@@ -268,7 +296,26 @@ Status FaceAuthenticatorF50x::DetectPoses(const RealSenseID::FaceAuthenticator::
                 }
             }
 
-            auto received_id = Recv(fa_packet);
+            PacketManager::MsgId received_id = MsgId::None;
+            try
+            {
+                received_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    if (!callback({}, 0, AuthenticateStatus::CrcError) && loop)
+                    {
+                        return Status::Ok;
+                    }
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
+
             switch (received_id)
             {
             case MsgId::PoseDetected: {
@@ -302,6 +349,10 @@ Status FaceAuthenticatorF50x::DetectPoses(const RealSenseID::FaceAuthenticator::
                 LOG_DEBUG(LOG_TAG, "Got Reply, final status: %d", static_cast<int>(final_status));
                 canceler.DoNotCancel();
                 return final_status;
+            }
+            case MsgId::Hint: {
+                LOG_DEBUG(LOG_TAG, "Ignoring hints during pose detection session");
+                break;
             }
             default:
                 LOG_WARNING(LOG_TAG, "Received unexpected MsgId: %d", static_cast<int>(received_id));
@@ -339,6 +390,7 @@ Status FaceAuthenticatorF50x::DetectBodyParts(const RealSenseID::FaceAuthenticat
         Send(fa_packet);
 
         PacketManager::Timer timer {loop ? KEEP_ALIVE_INTERVAL : SESSION_TIMEOUT};
+        unsigned int consecutive_crc_errors = 0;
 
         while (!_cancel_loop)
         {
@@ -357,7 +409,26 @@ Status FaceAuthenticatorF50x::DetectBodyParts(const RealSenseID::FaceAuthenticat
                 }
             }
 
-            auto received_id = Recv(fa_packet);
+            PacketManager::MsgId received_id = MsgId::None;
+            try
+            {
+                received_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    if (!callback({}, 0, AuthenticateStatus::CrcError) && loop)
+                    {
+                        return Status::Ok;
+                    }
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
+
             switch (received_id)
             {
             case MsgId::PersonDetected: {
@@ -391,6 +462,10 @@ Status FaceAuthenticatorF50x::DetectBodyParts(const RealSenseID::FaceAuthenticat
                 LOG_DEBUG(LOG_TAG, "Got Reply, final status: %d", static_cast<int>(final_status));
                 canceler.DoNotCancel();
                 return final_status;
+            }
+            case MsgId::Hint: {
+                LOG_DEBUG(LOG_TAG, "Ignoring hints during body part detection session");
+                break;
             }
             default:
                 LOG_WARNING(LOG_TAG, "Received unexpected MsgId: %d", static_cast<int>(received_id));
@@ -476,6 +551,7 @@ Status FaceAuthenticatorF50x::DecodeBarcodes(const RealSenseID::FaceAuthenticato
         Send(fa_packet);
 
         PacketManager::Timer timer {loop ? KEEP_ALIVE_INTERVAL : SESSION_TIMEOUT};
+        unsigned int consecutive_crc_errors = 0;
 
         while (!_cancel_loop)
         {
@@ -494,7 +570,26 @@ Status FaceAuthenticatorF50x::DecodeBarcodes(const RealSenseID::FaceAuthenticato
                 }
             }
 
-            auto received_id = Recv(fa_packet);
+            PacketManager::MsgId received_id = MsgId::None;
+            try
+            {
+                received_id = Recv(fa_packet);
+            }
+            catch (const SerialError& err)
+            {
+                // tolerate transient crc errors; rethrow once we hit too many in a row
+                if (err.status == PacketManager::SerialStatus::CrcError && ++consecutive_crc_errors < MAX_CONSECUTIVE_CRC_ERRORS)
+                {
+                    if (!callback({}, 0, AuthenticateStatus::CrcError) && loop)
+                    {
+                        return Status::Ok;
+                    }
+                    continue;
+                }
+                throw;
+            }
+            consecutive_crc_errors = 0;
+
             switch (received_id)
             {
             case MsgId::BarcodeDecoded: {
@@ -528,6 +623,10 @@ Status FaceAuthenticatorF50x::DecodeBarcodes(const RealSenseID::FaceAuthenticato
                 LOG_DEBUG(LOG_TAG, "Got Reply, final status: %d", static_cast<int>(final_status));
                 canceler.DoNotCancel();
                 return final_status;
+            }
+            case MsgId::Hint: {
+                LOG_DEBUG(LOG_TAG, "Ignoring hints during barcode decoding session");
+                break;
             }
             default:
                 LOG_WARNING(LOG_TAG, "Received unexpected MsgId: %d", static_cast<int>(received_id));
