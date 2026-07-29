@@ -1,4 +1,4 @@
-﻿// License: Apache 2.0. See LICENSE file in root directory.
+// License: Apache 2.0. See LICENSE file in root directory.
 // Copyright(c) 2020-2021 RealSense, Inc. All Rights Reserved.
 
 using System;
@@ -78,10 +78,20 @@ namespace rsid_wrapper_csharp
 
         private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
         {
+            // Security fix: validate URI scheme to prevent command injection via Process.Start.
+            // Only allow http/https URIs to be opened in the browser; reject all other schemes
+            // (e.g. file://, cmd://, ms-settings:, etc.) that could execute arbitrary commands.
+            var uri = e.Uri;
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                e.Handled = true;
+                return;
+            }
+
             // Open the URL in the system's default web browser
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName = e.Uri.AbsoluteUri,
+                FileName = uri.AbsoluteUri,
                 UseShellExecute = true
             });
 
