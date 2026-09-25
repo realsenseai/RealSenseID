@@ -1580,6 +1580,16 @@ Status FaceAuthenticatorCommon::ExtractFaceprintsForAuthLoop(AuthFaceprintsExtra
                 continue; // continue to recv next messages
             }
 
+            // handle face distances as data packet
+            if (msg_id == MsgId::FaceDistances)
+            {
+                unsigned int ts = 0;
+                auto distances = GetFaceDistances(fa_packet, ts);
+                if (!distances.empty())
+                    callback.OnFaceDistances(distances, ts);
+                continue; // continue to recv next messages
+            }
+
             // handle face cropped image data packet
             if (msg_id == MsgId::FaceCroppedImage)
             {
