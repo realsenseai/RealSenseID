@@ -7,6 +7,9 @@ elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     message(STATUS "Linux platform")
     add_definitions(-DLINUX)
 
+elseif(APPLE)
+    message(STATUS "macOS platform")
+
 elseif(ANDROID)
     message(STATUS "Android platform")
     add_definitions(-DANDROID_STL=c++_shared)
